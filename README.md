@@ -112,11 +112,9 @@ Then set `EMBEDDING_PROVIDER=cohere` and add routing logic in `src/server.py`'s 
 
 **Other providers (AWS Bedrock, Hugging Face, etc.):** See [docs/custom-embedding-providers.md](docs/custom-embedding-providers.md) for a step-by-step guide to creating your own adapter. The interface is four methods and typically under 30 lines of code.
 
-## Process flows
-
 ### Indexing a codebase
 
-Triggered by `scripts/index-repos.sh`, background sync, or an agent calling `index_codebase`.
+*Agents search code by meaning, not grep. One-time indexing turns your codebase into a searchable vector space where "find auth middleware" returns the actual functions, not string matches.*
 
 ```mermaid
 sequenceDiagram
@@ -138,6 +136,8 @@ sequenceDiagram
 
 ### Semantic code search
 
+*Agents find relevant code without knowing exact names or file locations. A natural language query returns ranked code snippets with file paths and line numbers, saving tokens by not reading entire files.*
+
 ```mermaid
 sequenceDiagram
     participant A as Agent
@@ -155,7 +155,7 @@ sequenceDiagram
 
 ### Storing and searching memory
 
-Writes go to SQLite (keywords) and ChromaDB (vectors). Search merges both via reciprocal rank fusion.
+*Agents remember what they learn across sessions. When Agent A discovers "this service uses JWT, not sessions," that knowledge persists and is findable by any agent later, through both keyword and semantic search.*
 
 ```mermaid
 sequenceDiagram
@@ -180,6 +180,8 @@ sequenceDiagram
 ```
 
 ### Multi-agent coordination
+
+*Without coordination, concurrent agents create merge conflicts and duplicate work. This flow prevents that: agents declare what files they are touching, get blocked if another agent is already there, and automatically receive discoveries relevant to their work area.*
 
 ```mermaid
 sequenceDiagram
@@ -212,6 +214,8 @@ sequenceDiagram
 ```
 
 ### Merge impact preview
+
+*Before merging, you can see exactly which in-flight agents will be affected, which memories will go stale, and who needs to be notified. After merging, one call updates everyone. No more "Agent B was working on stale code for 30 minutes because Agent A merged without telling anyone."*
 
 ```mermaid
 sequenceDiagram
