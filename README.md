@@ -110,6 +110,8 @@ class CohereEmbedding(Embedding):
 
 Then set `EMBEDDING_PROVIDER=cohere` and add routing logic in `src/server.py`'s `_get_embedder()` function.
 
+**Other providers (AWS Bedrock, Hugging Face, etc.):** See [docs/custom-embedding-providers.md](docs/custom-embedding-providers.md) for a step-by-step guide to creating your own adapter. The interface is four methods and typically under 30 lines of code.
+
 ## Process flows
 
 ### Flow 1: Indexing a codebase
