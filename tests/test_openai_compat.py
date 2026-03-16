@@ -1,11 +1,12 @@
 """Tests for OpenAI-compatible embedding adapter (mocked, no API needed)."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 openai = pytest.importorskip("openai", reason="openai package not installed")
 
-from src.embedding.openai_compat import OpenAICompatibleEmbedding
+from src.embedding.openai_compat import OpenAICompatibleEmbedding  # noqa: E402
 
 
 def _fake_response(dim: int, count: int):
