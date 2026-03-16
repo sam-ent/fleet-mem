@@ -5,16 +5,36 @@
 
 # fleet-mem
 
-Shared code intelligence for agent fleets.
+**When multiple AI agents work on the same codebase, they need shared context.** Without it, Agent A rewrites a function that Agent B is also modifying. Agent C searches for a pattern that Agent D already found and documented. Agents repeat work, create conflicts, and operate on stale information.
 
-fleet-mem is a local MCP server that gives AI coding agents two capabilities:
+fleet-mem solves this. It is a local [MCP](https://modelcontextprotocol.io) server that gives AI coding agents two things:
 
-1. **Code understanding**: parse, index, and semantically search codebases using Abstract Syntax Tree (AST) splitting and vector embeddings
-2. **Fleet coordination**: share knowledge across concurrent agents working on the same codebase, prevent file conflicts, and detect stale context after merges
+1. **Code understanding** with minimal token cost: parse codebases into semantic chunks using Abstract Syntax Trees (AST), embed them locally, and search by meaning rather than keywords
+2. **Fleet coordination**: share discoveries across agents, prevent file conflicts with a lock registry, and detect stale context when another agent merges changes
+
+It runs entirely on your machine. No cloud APIs, no telemetry, no data leaves your network.
+
+## How it works
+
+fleet-mem installs once as a global MCP server. It can index any number of projects. Each project gets its own collection in ChromaDB. All agents share the same server instance.
+
+```
+~/projects/
+  ├── project-a/   <-- indexed as code_project-a
+  ├── project-b/   <-- indexed as code_project-b
+  └── project-c/   <-- indexed as code_project-c
+
+~/.local/share/fleet-mem/
+  ├── chroma/      <-- all vector embeddings (shared)
+  ├── memory.db    <-- agent memories (shared)
+  └── fleet.db     <-- locks, subscriptions (shared)
+```
+
+### Architecture
 
 ```mermaid
 graph LR
-    MCP[MCP Client] --> FM[fleet-mem]
+    MCP[Any MCP Client] --> FM[fleet-mem]
 
     FM --> CS[Code Search]
     FM --> AM[Agent Memory]
@@ -29,29 +49,118 @@ graph LR
     FC --> G[Git]
 ```
 
-## Why three databases?
+### Why these components?
 
-| Database | Type | Purpose | Why this type? |
-|----------|------|---------|----------------|
-| **ChromaDB** | Vector store (HNSW) | Stores code chunk embeddings for semantic search. "Find code similar to X" | Vector similarity search requires specialized indexing (HNSW). SQLite can't do this efficiently |
-| **SQLite (memory)** | Relational + FTS5 | Stores agent memories, file anchors, staleness tracking. Hybrid keyword + semantic search | FTS5 provides fast keyword search. Combined with ChromaDB vectors for hybrid ranking (reciprocal rank fusion) |
-| **SQLite (fleet)** | Relational | Stores agent locks, memory subscriptions, merge notifications | Pure coordination state. No search needed, just fast reads/writes with transactions |
+| Component | What it is | Why we chose it |
+|-----------|-----------|-----------------|
+| **[Ollama](https://ollama.ai)** | Local inference server for ML models | Runs embedding models on your machine with zero API costs. Supports dozens of models. Works via Docker, systemd, or brew. If you prefer a different provider, the `Embedding` base class is swappable |
+| **[ChromaDB](https://www.trychroma.com/)** | Vector database with HNSW indexing | Purpose-built for similarity search over embeddings. SQLite can't do vector nearest-neighbor efficiently. Runs in-process (no separate server) |
+| **SQLite + FTS5** | Relational database with full-text search | Agent memories need both keyword search ("find all memories about auth") and structured queries (file anchors, staleness). FTS5 + ChromaDB vectors give hybrid ranking via reciprocal rank fusion |
+| **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** | Incremental parsing library | Splits code into semantic chunks (functions, classes, methods) instead of arbitrary character windows. This means search results are meaningful code units, not fragments. Supports 15+ languages |
+
+### Embedding model
+
+The default model is `nomic-embed-text` (768 dimensions, ~137M params). It runs locally via Ollama at zero cost per query. You can switch to any Ollama-compatible embedding model by setting `OLLAMA_EMBED_MODEL`.
+
+**Alternatives:** If you prefer cloud embeddings (OpenAI, Cohere, Voyage), implement the `Embedding` base class in `src/embedding/base.py`. The interface is four methods: `embed`, `embed_batch`, `get_dimension`, `get_provider`.
+
+## Process flows
+
+### Flow 1: Indexing a codebase
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant FM as fleet-mem
+    participant TS as tree-sitter
+    participant OL as Ollama
+    participant DB as ChromaDB
+
+    A->>FM: index_codebase(path)
+    FM->>FM: Walk files, skip .gitignore
+    FM->>TS: Parse each file into AST
+    TS-->>FM: Semantic chunks (functions, classes)
+    FM->>OL: Embed chunks in batches of 64
+    OL-->>FM: Vector embeddings
+    FM->>DB: Upsert chunks + vectors
+    FM-->>A: {status: "indexed", chunks: 1523}
+```
+
+### Flow 2: Semantic code search
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant FM as fleet-mem
+    participant OL as Ollama
+    participant DB as ChromaDB
+
+    A->>FM: search_code("auth middleware")
+    FM->>OL: Embed query string
+    OL-->>FM: Query vector
+    FM->>DB: Nearest-neighbor search
+    DB-->>FM: Top-K chunks with scores
+    FM-->>A: [{file, line_range, snippet, score}]
+```
+
+### Flow 3: Multi-agent coordination
+
+```mermaid
+sequenceDiagram
+    participant A as Agent A
+    participant B as Agent B
+    participant FM as fleet-mem
+
+    A->>FM: lock_acquire("agent-a", ["src/auth/*"])
+    FM-->>A: {status: "acquired"}
+
+    B->>FM: lock_acquire("agent-b", ["src/auth/login.py"])
+    FM-->>B: {status: "conflict", holder: "agent-a"}
+
+    A->>FM: memory_store("auth uses JWT, not sessions")
+    FM->>FM: Notify subscribers of src/auth/*
+
+    B->>FM: memory_notifications("agent-b")
+    FM-->>B: [{content: "auth uses JWT..."}]
+
+    A->>FM: lock_release("agent-a", project)
+```
+
+### Flow 4: Merge impact preview
+
+```mermaid
+sequenceDiagram
+    participant O as Orchestrator
+    participant FM as fleet-mem
+
+    O->>FM: merge_impact(project, ["src/auth/login.py"])
+    FM-->>O: locked_agents: [agent-b]
+    FM-->>O: subscribed_agents: [agent-c]
+    FM-->>O: stale_memories: [memory-42]
+
+    Note over O: Decide: wait for agents or merge now
+
+    O->>FM: notify_merge(project, branch, files)
+    FM->>FM: Create notifications for subscribers
+    FM->>FM: Mark file anchors stale
+```
 
 ## Features
 
 ### Code understanding
 
-- **Semantic search**: index codebases with tree-sitter Abstract Syntax Tree (AST) splitting, search by meaning via vector similarity
+- **Semantic search**: "find auth middleware" returns relevant functions, not just string matches
 - **Symbol lookup**: find function/class definitions across indexed projects
 - **Dependency analysis**: trace what calls or imports a given symbol
 - **Incremental sync**: SHA-1 Merkle tree detects file changes, re-indexes only deltas
+- **Branch-aware indexing**: overlay collections for feature branches keep branch-specific changes isolated from the main index
 
 ### Fleet coordination
 
-- **Branch-aware indexing**: overlay collections for feature branches so agents see their own changes without polluting the base index
-- **File lock registry**: agents declare which files they're working on, others check before starting to avoid merge conflicts
-- **Cross-agent memory**: agents share discoveries via subscriptions and notifications. Agent A finds a bug in auth code, Agent B (working on auth) gets notified
-- **Merge impact preview**: before merging, see which in-flight agents would be affected. After merging, notify them automatically
+- **File lock registry**: agents declare which files they are working on, others check before starting
+- **Cross-agent memory**: agents share discoveries via subscriptions and notifications
+- **Merge impact preview**: before merging, see which in-flight agents would be affected
+- **Post-merge notification**: after merging, automatically notify affected agents and mark stale context
 
 ## Getting started
 
@@ -59,26 +168,31 @@ graph LR
 
 - Python 3.11+
 - [Ollama](https://ollama.ai) running locally (any install method: brew, systemd, Docker)
-- The `nomic-embed-text` model pulled in Ollama
+- The `nomic-embed-text` model pulled: `ollama pull nomic-embed-text`
 
 ### Setup
 
 ```bash
-# 1. Install: creates venv, installs deps, registers MCP server
+git clone https://github.com/sam-ent/fleet-mem.git
+cd fleet-mem
+
+# Install: creates venv, installs deps, registers MCP server
 ./scripts/setup.sh
 
-# 2. Index your codebases
+# Index your codebases (searches for git repos under the given root)
 ./scripts/index-repos.sh --root ~/projects
 ```
+
+fleet-mem registers itself as a global MCP server. Your MCP client starts it automatically on first tool call. No per-project setup needed.
 
 ### Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/setup.sh` | One-time install: venv, dependencies, Ollama connectivity check, MCP server registration |
-| `scripts/index-repos.sh` | Walks a directory for git repos and indexes each one into ChromaDB |
-| `scripts/import-flat-files.py` | Import existing memory files (markdown with YAML frontmatter) into the memory database |
-| `scripts/embed-existing-nodes.py` | Embed existing memory database nodes into ChromaDB for semantic search |
+| `scripts/setup.sh` | One-time install: venv, dependencies, Ollama check, MCP registration |
+| `scripts/index-repos.sh` | Find git repos under a root directory and index each one |
+| `scripts/import-flat-files.py` | Import existing memory files (markdown with YAML frontmatter) |
+| `scripts/embed-existing-nodes.py` | Embed existing memory DB nodes into ChromaDB for semantic search |
 
 ## Configuration
 
@@ -86,16 +200,28 @@ All settings via environment variables or a `.env` file in the project root. Cop
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint. Standard port for all install methods |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name. Any Ollama-compatible model works |
 | `CHROMA_PATH` | `~/.local/share/fleet-mem/chroma` | ChromaDB persistent storage |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
 | `MEMORY_DB_PATH` | `~/.local/share/fleet-mem/memory.db` | Agent memory database |
 | `FLEET_DB_PATH` | `~/.local/share/fleet-mem/fleet.db` | Fleet coordination database (locks, subscriptions) |
-| `SYNC_INTERVAL` | `300` | Background sync interval in seconds |
+| `SYNC_INTERVAL` | `300` | Background code index sync interval in seconds (see below) |
+| `MCP_SETTINGS_FILE` | `~/.claude/settings.json` | MCP client settings file. Override for non-default clients |
+
+### Background sync timing
+
+| What | Timing | How |
+|------|--------|-----|
+| **Code index refresh** | Every `SYNC_INTERVAL` seconds (default: 300) | Polls filesystem, computes SHA-1 hashes, re-indexes changed files |
+| **Agent memory writes** | Immediate | Direct SQLite + ChromaDB insert on `memory_store` call |
+| **Lock acquire/release** | Immediate | Direct SQLite write |
+| **Notifications** | Immediate | Created on `memory_store` if subscriptions match |
+
+For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. The poll walks the filesystem and hashes files, so very low intervals (under 10s) may use noticeable CPU on large repos. A future release will add file-watching for near-instant sync.
 
 ## MCP tools reference
 
-### Code search tools
+### Code search (6 tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -106,7 +232,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `get_change_impact` | `file_paths?, symbol_names?` | Find code affected by changes to given files/symbols |
 | `get_dependents` | `symbol_name, depth?` | Trace what calls/imports a symbol (BFS) |
 
-### Memory tools
+### Agent memory (4 tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -115,7 +241,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `memory_promote` | `memory_id, target_scope?` | Promote a project memory to global scope |
 | `stale_check` | `project_path?` | Find memories whose anchored files have changed |
 
-### Fleet coordination tools
+### Fleet coordination (8 tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -128,7 +254,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `memory_subscribe` | `agent_id, file_patterns` | Subscribe to memories about specific files |
 | `memory_notifications` | `agent_id` | Check for new relevant memories from other agents |
 
-### Status tools
+### Status (4 tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
