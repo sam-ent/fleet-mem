@@ -11,9 +11,10 @@ Shared code intelligence for agent fleets. AST-aware semantic search, multi-agen
 
 fleet-mem is a local [MCP](https://modelcontextprotocol.io) server that gives AI coding agents shared context:
 
-- **Zero data leakage.** Runs entirely on your machine. No cloud APIs, no telemetry, no data leaves your network.
+- **Zero data leakage by default.** Runs entirely on your machine using local Ollama embeddings. No cloud APIs, no telemetry, no data leaves your network. Cloud embedding providers (OpenAI, Gemini, etc.) are available as an opt-in choice.
 - **Token-efficient code search.** Understands the structure of your code via Abstract Syntax Trees (AST). Returns the specific function, not the entire file.
-- **Fleet-aware.** Agents share discoveries, declare what files they are working on, and get notified when another agent's merge affects their context.
+- **Shared memory across agents.** Agent A discovers "this service uses JWT, not sessions." Agent B finds that knowledge automatically when working on the same code. Memories persist across sessions.
+- **Fleet-aware coordination.** Agents declare what files they are working on, get blocked on conflicts before they start, and get notified when another agent's merge affects their context.
 
 ---
 
