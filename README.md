@@ -149,8 +149,9 @@ AST-aware splitting means search results are complete, meaningful code units. Te
 
 #### Indexing a codebase
 
-> **Problem:** Agents read entire files to understand code, burning tokens and missing context across files.
-> **Solution:** One-time indexing parses code into semantic chunks and embeds them. Agents search by meaning across the whole codebase.
+> **<ins>Problem</ins>:** Agents read entire files to understand code, burning tokens and missing context across files.
+>
+> **<ins>Solution</ins>:** One-time indexing parses code into semantic chunks and embeds them. Agents search by meaning across the whole codebase.
 
 ```mermaid
 sequenceDiagram
@@ -174,8 +175,9 @@ sequenceDiagram
 
 #### Semantic code search
 
-> **Problem:** Grep requires exact strings. Agents don't know file names or function signatures in unfamiliar code.
-> **Solution:** Natural language query returns ranked code snippets with file paths and line numbers. No exact match needed.
+> **<ins>Problem</ins>:** Grep requires exact strings. Agents don't know file names or function signatures in unfamiliar code.
+>
+> **<ins>Solution</ins>:** Natural language query returns ranked code snippets with file paths and line numbers. No exact match needed.
 
 ```mermaid
 sequenceDiagram
@@ -196,8 +198,9 @@ sequenceDiagram
 
 #### Storing and searching memory
 
-> **Problem:** Agents lose everything they learn when a session ends. The next agent re-discovers the same things from scratch.
-> **Solution:** Discoveries persist in a shared memory store. Any agent can find them later via keyword or semantic search.
+> **<ins>Problem</ins>:** Agents lose everything they learn when a session ends. The next agent re-discovers the same things from scratch.
+>
+> **<ins>Solution</ins>:** Discoveries persist in a shared memory store. Any agent can find them later via keyword or semantic search.
 
 ```mermaid
 sequenceDiagram
@@ -225,8 +228,9 @@ sequenceDiagram
 
 #### Multi-agent coordination
 
-> **Problem:** Concurrent agents modify the same files, causing merge conflicts and duplicated effort. No one knows what anyone else is doing.
-> **Solution:** Agents declare their work area, get blocked on conflicts before they start, and automatically receive discoveries from other agents working nearby.
+> **<ins>Problem</ins>:** Concurrent agents modify the same files, causing merge conflicts and duplicated effort. No one knows what anyone else is doing.
+>
+> **<ins>Solution</ins>:** Agents declare their work area, get blocked on conflicts before they start, and automatically receive discoveries from other agents working nearby.
 
 ```mermaid
 sequenceDiagram
@@ -262,8 +266,9 @@ sequenceDiagram
 
 #### Merge impact preview
 
-> **Problem:** Agent A merges a PR. Agents B and C are still working on branches that now have stale context. No one tells them.
-> **Solution:** Before merging, see exactly which agents, memories, and branches will be affected. After merging, one call notifies everyone and marks stale context.
+> **<ins>Problem</ins>:** Agent A merges a PR. Agents B and C are still working on branches that now have stale context. No one tells them.
+>
+> **<ins>Solution</ins>:** Before merging, see exactly which agents, memories, and branches will be affected. After merging, one call notifies everyone and marks stale context.
 
 ```mermaid
 sequenceDiagram
