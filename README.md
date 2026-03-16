@@ -114,84 +114,166 @@ Then set `EMBEDDING_PROVIDER=cohere` and add routing logic in `src/server.py`'s 
 
 ### Process flows
 
-#### Indexing a codebase
+<details>
+<summary>Indexing a codebase (click to expand)</summary>
+
+Triggered by `scripts/index-repos.sh`, background sync, or an agent calling `index_codebase`. Walks the filesystem, parses code into semantic chunks, embeds them, and stores vectors in ChromaDB.
 
 ```mermaid
 sequenceDiagram
-    participant A as Agent
+    participant S as Setup script<br/>or background sync
     participant FM as fleet-mem
+    participant FS as Filesystem
     participant TS as tree-sitter
     participant OL as Ollama
-    participant DB as ChromaDB
+    participant C as ChromaDB
 
-    A->>FM: index_codebase(path)
-    FM->>FM: Walk files, skip .gitignore
-    FM->>TS: Parse each file into AST
+    S->>FM: index_codebase(path)
+    FM->>FS: Walk files (skip .gitignore)
+    FS-->>FM: File list
+    FM->>FS: Read file contents
+    FM->>TS: Parse into AST
     TS-->>FM: Semantic chunks (functions, classes)
-    FM->>OL: Embed chunks in batches of 64
+    FM->>OL: Embed chunks (batches of 64)
     OL-->>FM: Vector embeddings
-    FM->>DB: Upsert chunks + vectors
-    FM-->>A: {status: "indexed", chunks: 1523}
+    FM->>C: Upsert chunks + vectors + metadata
+    Note over C: Stored in collection code_{project}
+    FM-->>S: {status: indexed, chunks: 1523}
 ```
 
-#### Semantic code search
+</details>
+
+<details>
+<summary>Semantic code search (click to expand)</summary>
+
+An agent searches by meaning. The query is embedded using the same model, then compared against stored vectors via nearest-neighbor search in ChromaDB.
 
 ```mermaid
 sequenceDiagram
     participant A as Agent
     participant FM as fleet-mem
     participant OL as Ollama
-    participant DB as ChromaDB
+    participant C as ChromaDB
 
     A->>FM: search_code("auth middleware")
     FM->>OL: Embed query string
-    OL-->>FM: Query vector
-    FM->>DB: Nearest-neighbor search
-    DB-->>FM: Top-K chunks with scores
+    OL-->>FM: Query vector (768 dims)
+    FM->>C: Nearest-neighbor search
+    Note over C: HNSW index, L2 distance
+    C-->>FM: Top-K chunks with distances
+    FM->>FM: Convert distance to similarity score
     FM-->>A: [{file, line_range, snippet, score}]
 ```
 
-#### Multi-agent coordination
+</details>
+
+<details>
+<summary>Storing and searching agent memory (click to expand)</summary>
+
+Memory writes go to both SQLite (for keyword search) and ChromaDB (for semantic search). Searches combine both results using reciprocal rank fusion.
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant FM as fleet-mem
+    participant OL as Ollama
+    participant M as memory.db (SQLite)
+    participant C as ChromaDB
+    participant F as fleet.db (SQLite)
+
+    Note over A,F: Storing a memory
+    A->>FM: memory_store("auth uses JWT tokens")
+    FM->>M: INSERT into memory_nodes
+    FM->>M: INSERT into memory_fts (full-text index)
+    FM->>OL: Embed content
+    OL-->>FM: Vector
+    FM->>C: Upsert into memory collection
+    FM->>F: Check subscriptions, create notifications
+    FM-->>A: {id: "mem-42", status: stored}
+
+    Note over A,F: Searching memory
+    A->>FM: memory_search("authentication")
+    FM->>M: FTS5 MATCH query (keyword hits)
+    FM->>OL: Embed query
+    OL-->>FM: Query vector
+    FM->>C: Nearest-neighbor search (semantic hits)
+    FM->>FM: Merge via reciprocal rank fusion
+    FM-->>A: Ranked results from both sources
+```
+
+</details>
+
+<details>
+<summary>Multi-agent coordination (click to expand)</summary>
+
+Agents acquire file locks before working, check for conflicts, share discoveries via memory, and receive notifications when other agents store relevant findings. All lock and notification state lives in fleet.db.
 
 ```mermaid
 sequenceDiagram
     participant A as Agent A
     participant B as Agent B
     participant FM as fleet-mem
+    participant F as fleet.db (SQLite)
+    participant M as memory.db (SQLite)
+    participant C as ChromaDB
 
     A->>FM: lock_acquire("agent-a", ["src/auth/*"])
-    FM-->>A: {status: "acquired"}
+    FM->>F: INSERT lock (check conflicts first)
+    FM-->>A: {status: acquired}
 
     B->>FM: lock_acquire("agent-b", ["src/auth/login.py"])
-    FM-->>B: {status: "conflict", holder: "agent-a"}
+    FM->>F: Check locks (fnmatch overlap)
+    FM-->>B: {status: conflict, holder: agent-a}
+
+    B->>FM: memory_subscribe("agent-b", ["src/auth/*"])
+    FM->>F: INSERT subscription
 
     A->>FM: memory_store("auth uses JWT, not sessions")
-    FM->>FM: Notify subscribers of src/auth/*
+    FM->>M: INSERT memory node
+    FM->>C: Embed and store vector
+    FM->>F: Match subscriptions, create notification
 
     B->>FM: memory_notifications("agent-b")
+    FM->>F: SELECT unread notifications
     FM-->>B: [{content: "auth uses JWT..."}]
+    FM->>F: Mark notifications as read
 
     A->>FM: lock_release("agent-a", project)
+    FM->>F: DELETE locks for agent-a
 ```
 
-#### Merge impact preview
+</details>
+
+<details>
+<summary>Merge impact preview (click to expand)</summary>
+
+Before merging, an agent or CI pipeline checks which in-flight agents, subscriptions, and memories would be affected. After merging, it notifies everyone.
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator
+    participant AC as Agent/CI
     participant FM as fleet-mem
+    participant F as fleet.db (SQLite)
+    participant M as memory.db (SQLite)
+    participant C as ChromaDB
 
-    O->>FM: merge_impact(project, ["src/auth/login.py"])
-    FM-->>O: locked_agents: [agent-b]
-    FM-->>O: subscribed_agents: [agent-c]
-    FM-->>O: stale_memories: [memory-42]
+    Note over AC,C: Pre-merge: check impact
+    AC->>FM: merge_impact(project, ["src/auth/login.py"])
+    FM->>F: Query locks overlapping src/auth/login.py
+    FM->>F: Query subscriptions matching src/auth/*
+    FM->>C: Check branch overlays with auth chunks
+    FM->>M: Query file_anchors for src/auth/login.py
+    FM-->>AC: locked: [agent-b], subscribed: [agent-c]
+    FM-->>AC: stale_overlays: [feat-xyz], stale_memories: [mem-42]
 
-    Note over O: Decide: wait for agents or merge now
-
-    O->>FM: notify_merge(project, branch, files)
-    FM->>FM: Create notifications for subscribers
-    FM->>FM: Mark file anchors stale
+    Note over AC,C: Post-merge: notify affected agents
+    AC->>FM: notify_merge(project, branch, files)
+    FM->>F: Create notifications for subscribers
+    FM->>M: Mark file anchors as stale
+    FM-->>AC: {notified: 2, stale_anchors: 1}
 ```
+
+</details>
 
 ## Features
 
