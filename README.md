@@ -5,6 +5,8 @@
 
 # fleet-mem
 
+Shared code intelligence for agent fleets. AST-aware semantic search, multi-agent memory, and git-concurrent coordination.
+
 **When multiple AI agents work on the same codebase, they fight.** Agent A rewrites a function that Agent B is also modifying. Agent C searches for a pattern that Agent D already found and documented. Agents repeat work, create conflicts, and operate on stale information.
 
 fleet-mem is a local [MCP](https://modelcontextprotocol.io) server that gives AI coding agents shared context:
