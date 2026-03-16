@@ -830,12 +830,13 @@ def _make_reindex_callback(config):
     """Build a callback for BackgroundSync that re-indexes changed/removed files."""
 
     def _reindex(changed_files: list[str], removed_files: list[str]) -> None:
-        # Each BackgroundSync instance is bound to a project. We delete old chunks
-        # for changed/removed files so the next full index picks them up fresh.
+        # Delete stale chunks for changed/removed files, then re-index changed files.
         try:
+            from .indexer import index_files
             from .sync.reconciler import ChunkReconciler
 
             db = _get_db(config)
+            embedder = _get_embedder(config)
             reconciler = ChunkReconciler(db)
 
             # Identify which projects are affected (group by top-level dir)
@@ -847,10 +848,32 @@ def _make_reindex_callback(config):
 
             for project, files in projects.items():
                 collection_name = f"code_{project}"
-                logger.info("Re-indexing %d files in %s", len(files), project)
+                logger.info("Re-indexing %d changed files in %s", len(files), project)
                 if db.has_collection(collection_name):
                     for fp in files:
                         reconciler.reconcile_file(collection_name, fp)
+
+                # Re-index the changed files
+                code_root = Path.home() / "CODE"
+                project_root = code_root / project
+                if project_root.is_dir():
+                    result = index_files(
+                        root=project_root,
+                        project_name=project,
+                        file_paths=files,
+                        db=db,
+                        embedder=embedder,
+                    )
+                    logger.info(
+                        "Re-indexed %s: %d chunks inserted, %d files ok, %d failed",
+                        project,
+                        result.chunks_inserted,
+                        result.files_succeeded,
+                        result.files_failed,
+                    )
+                    if result.errors:
+                        for fp, err in result.errors.items():
+                            logger.warning("Failed to re-index %s: %s", fp, err)
 
             # Delete chunks for removed files (grouped by project)
             removed_by_project: dict[str, list[str]] = {}

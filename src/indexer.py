@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -13,6 +15,8 @@ from src.splitter.file_scanner import scan_files
 from src.splitter.text_splitter import TextChunk, split_text
 from src.vectordb.base import VectorDatabase
 from src.vectordb.types import VectorDocument
+
+logger = logging.getLogger(__name__)
 
 # Batch size for embedding calls
 _EMBED_BATCH_SIZE = 64
@@ -38,6 +42,122 @@ def _split_file(
             return chunks
     # Fallback to text splitter
     return split_text(content)
+
+
+@dataclass
+class IndexFilesResult:
+    """Result of indexing specific files."""
+
+    chunks_inserted: int
+    files_succeeded: int
+    files_failed: int
+    errors: dict[str, str]  # file_path -> error message
+
+
+def index_files(
+    root: Path,
+    project_name: str,
+    file_paths: list[str],
+    db: VectorDatabase,
+    embedder: Embedding,
+) -> IndexFilesResult:
+    """Index specific files into ChromaDB.
+
+    Unlike ``index_codebase`` which walks an entire directory, this function
+    processes only the given *file_paths* (relative to *root*). Each file is
+    handled independently — a failure in one file does not prevent the rest
+    from being indexed.
+
+    Args:
+        root: Root directory of the codebase.
+        project_name: Name used for the ChromaDB collection (``code_{project_name}``).
+        file_paths: Relative file paths (relative to *root*) to index.
+        db: Vector database instance.
+        embedder: Embedding provider.
+
+    Returns:
+        An ``IndexFilesResult`` with counts of inserted chunks and per-file errors.
+    """
+    collection_name = f"code_{project_name}"
+    dimension = embedder.get_dimension()
+    db.create_collection(collection_name, dimension)
+
+    ast_langs = set(supported_languages())
+    all_docs: list[VectorDocument] = []
+    files_succeeded = 0
+    files_failed = 0
+    errors: dict[str, str] = {}
+
+    for rel_path in file_paths:
+        try:
+            abs_path = root / rel_path
+            if not abs_path.is_file():
+                logger.warning("index_files: skipping missing file %s", rel_path)
+                files_failed += 1
+                errors[rel_path] = "file not found"
+                continue
+
+            content = abs_path.read_text(errors="replace")
+            suffix = abs_path.suffix.lower()
+            from .splitter.file_scanner import EXTENSION_MAP
+
+            language = EXTENSION_MAP.get(suffix, "unknown")
+
+            chunks = _split_file(content, language, ast_langs)
+
+            for chunk in chunks:
+                metadata = {
+                    "file_path": rel_path,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
+                    "language": language,
+                    "chunk_type": chunk.chunk_type,
+                    "project_name": project_name,
+                }
+                if isinstance(chunk, ASTChunk) and chunk.name:
+                    metadata["name"] = chunk.name
+
+                content_with_context = (
+                    f"# {rel_path} (L{chunk.start_line}-L{chunk.end_line})\n{chunk.content}"
+                )
+                doc_id = _chunk_id(project_name, rel_path, chunk.start_line, chunk.end_line)
+                all_docs.append(
+                    VectorDocument(id=doc_id, content=content_with_context, metadata=metadata)
+                )
+
+            files_succeeded += 1
+        except Exception as exc:
+            logger.warning("index_files: failed to process %s: %s", rel_path, exc)
+            files_failed += 1
+            errors[rel_path] = str(exc)
+
+    if not all_docs:
+        return IndexFilesResult(
+            chunks_inserted=0,
+            files_succeeded=files_succeeded,
+            files_failed=files_failed,
+            errors=errors,
+        )
+
+    # Embed in batches
+    for batch_start in range(0, len(all_docs), _EMBED_BATCH_SIZE):
+        batch = all_docs[batch_start : batch_start + _EMBED_BATCH_SIZE]
+        texts = [d.content for d in batch]
+        vectors = embedder.embed_batch(texts)
+        for doc, vec in zip(batch, vectors):
+            doc.vector = vec
+
+    # Insert in batches
+    for batch_start in range(0, len(all_docs), _EMBED_BATCH_SIZE):
+        batch = all_docs[batch_start : batch_start + _EMBED_BATCH_SIZE]
+        db.insert(collection_name, batch)
+
+    return IndexFilesResult(
+        chunks_inserted=len(all_docs),
+        files_succeeded=files_succeeded,
+        files_failed=files_failed,
+        errors=errors,
+    )
 
 
 def index_codebase(
