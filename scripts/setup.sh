@@ -5,7 +5,8 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="${PROJECT_DIR}/.venv"
-SETTINGS_FILE="${HOME}/.claude/settings.json"
+# MCP client settings (default: Claude Code; override for other clients)
+MCP_SETTINGS_FILE="${MCP_SETTINGS_FILE:-${HOME}/.claude/settings.json}"
 
 DEFAULT_CHROMA_DIR="${HOME}/.local/share/fleet-mem/chroma"
 DEFAULT_OLLAMA_HOST="http://localhost:11434"
@@ -90,8 +91,8 @@ else
     echo "WARNING: Ollama not reachable at ${OLLAMA_HOST}. Embeddings will fail until Ollama is running."
 fi
 
-# --- 7. Register MCP in ~/.claude/settings.json ---
-echo "Registering MCP server in ${SETTINGS_FILE}..."
+# --- 7. Register MCP server ---
+echo "Registering MCP server in ${MCP_SETTINGS_FILE}..."
 mkdir -p "$(dirname "$SETTINGS_FILE")"
 
 MCP_ENTRY=$(cat <<JSONEOF
@@ -107,14 +108,14 @@ JSONEOF
 )
 
 if [ -f "$SETTINGS_FILE" ]; then
-    cp "$SETTINGS_FILE" "${SETTINGS_FILE}.bak"
-    echo "Backed up existing settings to ${SETTINGS_FILE}.bak"
+    cp "$SETTINGS_FILE" "${MCP_SETTINGS_FILE}.bak"
+    echo "Backed up existing settings to ${MCP_SETTINGS_FILE}.bak"
     # Read existing, merge mcpServers.fleet-mem
     echo "$MCP_ENTRY" | "${VENV_DIR}/bin/python" -c "
 import json, sys, os
 
 entry = json.load(sys.stdin)
-settings_file = os.path.expanduser('${SETTINGS_FILE}')
+settings_file = os.path.expanduser('${MCP_SETTINGS_FILE}')
 
 with open(settings_file) as f:
     settings = json.load(f)
@@ -133,7 +134,7 @@ else
 import json, sys, os
 
 entry = json.load(sys.stdin)
-settings_file = os.path.expanduser('${SETTINGS_FILE}')
+settings_file = os.path.expanduser('${MCP_SETTINGS_FILE}')
 
 settings = {'mcpServers': {'fleet-mem': entry}}
 
@@ -149,6 +150,6 @@ echo ""
 echo "Installation complete."
 echo "  Venv:   ${VENV_DIR}"
 echo "  Chroma: ${CHROMA_DIR}"
-echo "  MCP:    registered in ${SETTINGS_FILE}"
+echo "  MCP:    registered in ${MCP_SETTINGS_FILE}"
 echo ""
-echo "Restart Claude Code to pick up the new MCP server."
+echo "Restart your MCP client to pick up the new server."

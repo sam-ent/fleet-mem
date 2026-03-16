@@ -3,7 +3,7 @@
 ## System Overview
 
 ```
- Claude Code (MCP Client)
+ MCP Client (any)
         |
         | stdio (MCP protocol)
         v
@@ -35,7 +35,7 @@ All components run locally. No cloud services, no telemetry.
 
 Persistent vector database for both code chunks and memory nodes.
 
-- **Storage:** `~/.claude/chroma/` (configurable via `CHROMA_PATH`)
+- **Storage:** `~/.local/share/fleet-mem/chroma/` (configurable via `CHROMA_PATH`)
 - **Collections:** `code_{project}` for code, `memory` for agent memory
 - **Distance:** L2 (HNSW index)
 - **API:** `insert`, `search`, `delete`, `count`, `drop_collection`
@@ -79,7 +79,7 @@ Incremental re-indexing using content-addressed Merkle trees.
 
 SQLite-backed storage for agent memory nodes.
 
-- **Database:** `~/.claude/memory/agent_memory.db` (configurable via `MEMORY_DB_PATH`)
+- **Database:** `~/.local/share/fleet-mem/memory.db` (configurable via `MEMORY_DB_PATH`)
 - **Tables:**
   - `memory_nodes` — id, node_type, content, summary, keywords, file_path, line_range, source, project_path, archived, timestamps
   - `file_anchors` — links memory nodes to file locations with hash for staleness detection
@@ -176,7 +176,7 @@ Recall:
 
 ## Deployment
 
-- **Runtime:** Local only. Runs as a stdio MCP server spawned by Claude Code.
+- **Runtime:** Local only. Runs as a stdio MCP server spawned by the MCP client.
 - **No cloud:** All data stays on disk (ChromaDB, SQLite). No network calls except Ollama (localhost).
 - **No telemetry:** ChromaDB telemetry explicitly disabled via `ANONYMIZED_TELEMETRY=False`.
 - **Process model:** Single process, background threads for indexing and sync.
@@ -208,7 +208,7 @@ fleet-mem/
 │       ├── engine.py          # SQLite memory storage
 │       └── embedder.py        # Hybrid search + embedding
 ├── scripts/
-│   ├── import-flat-files.py   # Import ~/.claude memory files
+│   ├── import-flat-files.py   # Import markdown memory files
 │   └── embed-existing-nodes.py # Backfill ChromaDB from SQLite
 ├── tests/
 ├── docs/

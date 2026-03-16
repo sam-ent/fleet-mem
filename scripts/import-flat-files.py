@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Import Claude memory flat files into agent_memory.db + ChromaDB.
+"""Import memory flat files (markdown with YAML frontmatter) into fleet-mem.
 
-Walks ~/.claude/projects/*/memory/*.md, parses YAML frontmatter,
-and inserts each file as a memory_node with source='flat-file-import'.
-Deduplicates by SHA-1 content hash.
+Default path: ~/.claude/projects/*/memory/*.md (override with --root).
+Parses YAML frontmatter, inserts each file as a memory_node with
+source='flat-file-import'. Deduplicates by SHA-1 content hash.
 """
 
 import hashlib
