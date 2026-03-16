@@ -13,34 +13,20 @@ fleet-mem is a local MCP server that gives AI coding agents two capabilities:
 2. **Fleet coordination**: share knowledge across concurrent agents working on the same codebase, prevent file conflicts, and detect stale context after merges
 
 ```mermaid
-graph TB
-    subgraph "MCP Tools (18 total)"
-        CS[Code Search<br/>6 tools]
-        AM[Agent Memory<br/>4 tools]
-        FC[Fleet Coordination<br/>8 tools]
-    end
+graph LR
+    MCP[MCP Client] --> FM[fleet-mem]
 
-    subgraph "Storage Layer"
-        direction LR
-        ChromaDB["ChromaDB<br/>(Vector Store)<br/>━━━━━━━━━━━<br/>Code chunk embeddings<br/>Semantic similarity search<br/>Per-branch overlay collections"]
-        SQLite["SQLite<br/>(Relational + FTS5)<br/>━━━━━━━━━━━<br/>Agent memory nodes<br/>File anchors + staleness<br/>Full-text keyword search"]
-        FleetDB["SQLite<br/>(Fleet State)<br/>━━━━━━━━━━━<br/>Agent file locks<br/>Memory subscriptions<br/>Merge notifications"]
-    end
+    FM --> CS[Code Search]
+    FM --> AM[Agent Memory]
+    FM --> FC[Fleet Coord]
 
-    subgraph "External"
-        Ollama[Ollama<br/>Local embeddings]
-        Git[Git<br/>Branch detection]
-    end
-
-    CS --> ChromaDB
-    CS --> Ollama
-    AM --> ChromaDB
-    AM --> SQLite
-    AM --> Ollama
-    FC --> FleetDB
-    FC --> ChromaDB
-    FC --> SQLite
-    FC --> Git
+    CS --> C[(ChromaDB)]
+    CS --> O[Ollama]
+    AM --> C
+    AM --> M[(memory.db)]
+    AM --> O
+    FC --> F[(fleet.db)]
+    FC --> G[Git]
 ```
 
 ## Why three databases?
