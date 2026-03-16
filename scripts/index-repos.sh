@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ! -x "$VENV_PYTHON" ]; then
-    echo "ERROR: venv not found. Run scripts/install.sh first."
+    echo "ERROR: venv not found. Run scripts/setup.sh first."
     exit 1
 fi
 

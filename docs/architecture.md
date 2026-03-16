@@ -222,10 +222,10 @@ All configuration via environment variables with sensible defaults:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHROMA_PATH` | `~/CODE/.claude/chroma` | ChromaDB persistent storage |
+| `CHROMA_PATH` | `~/.local/share/fleet-mem/chroma` | ChromaDB persistent storage |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
-| `MEMORY_DB_PATH` | `~/.claude/memory/agent_memory.db` | SQLite memory database |
+| `MEMORY_DB_PATH` | `~/.local/share/fleet-mem/memory.db` | SQLite memory database |
 | `SYNC_INTERVAL` | `300` | Background sync interval (seconds) |
 
 ## Acknowledgments
