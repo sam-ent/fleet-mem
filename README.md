@@ -5,14 +5,66 @@
 
 # fleet-mem
 
-**When multiple AI agents work on the same codebase, they need shared context.** Without it, Agent A rewrites a function that Agent B is also modifying. Agent C searches for a pattern that Agent D already found and documented. Agents repeat work, create conflicts, and operate on stale information.
+**When multiple AI agents work on the same codebase, they fight.** Agent A rewrites a function that Agent B is also modifying. Agent C searches for a pattern that Agent D already found and documented. Agents repeat work, create conflicts, and operate on stale information.
 
-fleet-mem solves this. It is a local [MCP](https://modelcontextprotocol.io) server that gives AI coding agents two things:
+fleet-mem is a local [MCP](https://modelcontextprotocol.io) server that gives AI coding agents shared context:
 
-1. **Code understanding** with minimal token cost: parse codebases into semantic chunks using Abstract Syntax Trees (AST), embed them locally, and search by meaning rather than keywords
-2. **Fleet coordination**: share discoveries across agents, prevent file conflicts with a lock registry, and detect stale context when another agent merges changes
+- **Zero data leakage.** Runs entirely on your machine. No cloud APIs, no telemetry, no data leaves your network.
+- **Token-efficient code search.** Understands the structure of your code via Abstract Syntax Trees (AST). Returns the specific function, not the entire file.
+- **Fleet-aware.** Agents share discoveries, declare what files they are working on, and get notified when another agent's merge affects their context.
 
-It runs entirely on your machine. No cloud APIs, no telemetry, no data leaves your network.
+## Getting started
+
+### Prerequisites
+
+- Python 3.11+
+- [Ollama](https://ollama.ai) running locally (brew, systemd, or Docker)
+- `ollama pull nomic-embed-text`
+
+### Install
+
+```bash
+git clone https://github.com/sam-ent/fleet-mem.git
+cd fleet-mem
+./scripts/setup.sh
+```
+
+### Index your codebases
+
+```bash
+./scripts/index-repos.sh --root ~/projects
+```
+
+### MCP client configuration
+
+Add to your MCP client settings (the `setup.sh` script does this automatically for the default client):
+
+```json
+{
+  "mcpServers": {
+    "fleet-mem": {
+      "command": "/path/to/fleet-mem/.venv/bin/python",
+      "args": ["-m", "src.server"],
+      "cwd": "/path/to/fleet-mem",
+      "env": {
+        "OLLAMA_HOST": "http://localhost:11434",
+        "ANONYMIZED_TELEMETRY": "False"
+      }
+    }
+  }
+}
+```
+
+fleet-mem works with any MCP-compatible client. Your client starts it automatically on the first tool call.
+
+### Example agent queries
+
+Once indexed, agents can ask things they could not do with grep:
+
+- *"Find the authentication middleware and show me how tokens are validated"*
+- *"Which agent is currently working on the database schema?"*
+- *"What did other agents learn about the payment gateway this session?"*
+- *"If I merge this branch, which agents will have stale context?"*
 
 ## How it works
 
@@ -20,14 +72,14 @@ fleet-mem installs once as a global MCP server. It can index any number of proje
 
 ```
 ~/projects/
-  ├── project-a/   <-- indexed as code_project-a
-  ├── project-b/   <-- indexed as code_project-b
-  └── project-c/   <-- indexed as code_project-c
+  project-a/     indexed as code_project-a
+  project-b/     indexed as code_project-b
+  project-c/     indexed as code_project-c
 
 ~/.local/share/fleet-mem/
-  ├── chroma/      <-- all vector embeddings (shared)
-  ├── memory.db    <-- agent memories (shared)
-  └── fleet.db     <-- locks, subscriptions (shared)
+  chroma/         vector embeddings (shared)
+  memory.db       agent memories (shared)
+  fleet.db        locks, subscriptions (shared)
 ```
 
 ### Architecture
@@ -49,73 +101,31 @@ graph LR
     FC --> G[Git]
 ```
 
-### Why these components?
+### Components
 
 | Component | What it is | Why we chose it |
 |-----------|-----------|-----------------|
-| **[Ollama](https://ollama.ai)** | Local inference server for ML models | Runs embedding models on your machine with zero API costs. Supports dozens of models. Works via Docker, systemd, or brew. If you prefer a different provider, the `Embedding` base class is swappable |
-| **[ChromaDB](https://www.trychroma.com/)** | Vector database with HNSW indexing | Purpose-built for similarity search over embeddings. SQLite can't do vector nearest-neighbor efficiently. Runs in-process (no separate server) |
-| **SQLite + FTS5** | Relational database with full-text search | Agent memories need both keyword search ("find all memories about auth") and structured queries (file anchors, staleness). FTS5 + ChromaDB vectors give hybrid ranking via reciprocal rank fusion |
-| **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** | Incremental parsing library | Splits code into semantic chunks (functions, classes, methods) instead of arbitrary character windows. This means search results are meaningful code units, not fragments. Supports 15+ languages |
-| **[xxHash](https://xxhash.com) (xxh3_64)** | File change detection (Merkle tree) and chunk ID generation | Used to detect which files changed between sync cycles and to generate deterministic chunk document IDs. This is **not a security function** -- it is purely for diffing and identification. xxh3_64 is significantly faster than SHA-1 while providing excellent hash distribution |
+| **[Ollama](https://ollama.ai)** | Local ML inference server | Runs embedding models on your machine at zero cost. Supports dozens of models. Works via Docker, systemd, or brew. Swappable via the `Embedding` base class |
+| **[ChromaDB](https://www.trychroma.com/)** | Vector database (HNSW) | Purpose-built for similarity search over embeddings. Runs in-process, no separate server needed |
+| **SQLite + FTS5** | Relational database with full-text search | Agent memories need both keyword search and structured queries. FTS5 + ChromaDB vectors give hybrid ranking via reciprocal rank fusion |
+| **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** | Incremental parsing library | Splits code into semantic chunks (functions, classes, methods) instead of arbitrary character windows. Search results are meaningful code units, not fragments |
+| **[xxHash](https://xxhash.com) (xxh3_64)** | File change detection + chunk IDs | Detects which files changed between sync cycles. Not a security function, purely for diffing. ~10x faster than SHA-1 |
 
-### Embedding providers
+### Language support
 
-The default is Ollama (local, free). fleet-mem also ships an OpenAI-compatible adapter that works with any provider offering an OpenAI-style embeddings API.
+| Language | Splitting method | Support level |
+|----------|-----------------|---------------|
+| Python, TypeScript, JavaScript | AST-aware | Tier 1: functions, classes, methods |
+| Go, Rust | AST-aware | Tier 2: functions, types, impl blocks |
+| All other languages | Text-only | Fallback: sliding window (2500 chars, 300 overlap) |
 
-| Provider | Setup | Cost |
-|----------|-------|------|
-| **Ollama** (default) | Install Ollama, `ollama pull nomic-embed-text` | Free |
-| **OpenAI** | Set `EMBEDDING_PROVIDER=openai-compat`, `EMBED_API_KEY`, `EMBED_MODEL=text-embedding-3-small` | ~$0.02/1M tokens |
-| **DeepSeek** | Set `EMBED_BASE_URL=https://api.deepseek.com/v1`, `EMBED_API_KEY`, `EMBED_MODEL=deepseek-embed` | ~$0.01/1M tokens |
-| **Together** | Set `EMBED_BASE_URL=https://api.together.xyz/v1`, `EMBED_API_KEY`, model of choice | Varies |
-| **Fireworks** | Set `EMBED_BASE_URL=https://api.fireworks.ai/inference/v1`, `EMBED_API_KEY`, model of choice | Varies |
-| **Local vLLM** | Set `EMBED_BASE_URL=http://localhost:8000/v1`, no API key needed | Free |
+AST-aware splitting means search results are complete, meaningful code units. Text-only fallback still works but may return partial functions. Adding a new language requires defining its tree-sitter node types in `src/splitter/ast_splitter.py` (contributions welcome).
 
-See `.env.example` for full configuration details.
+### Process flows
 
-**Gemini:** Google offers an [OpenAI-compatible endpoint](https://ai.google.dev/gemini-api/docs/openai). Set `EMBED_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/`, `EMBED_API_KEY` to your Gemini API key, and `EMBED_MODEL=text-embedding-004`.
+#### Indexing a codebase
 
-**Cohere:** Cohere does not offer an OpenAI-compatible API. To use Cohere embeddings, create a custom adapter by subclassing `src/embedding/base.py`:
-
-```python
-# src/embedding/cohere_embed.py
-import cohere
-from src.embedding.base import Embedding
-
-class CohereEmbedding(Embedding):
-    def __init__(self, api_key: str, model: str = "embed-english-v3.0"):
-        self._client = cohere.Client(api_key)
-        self._model = model
-        self._dimension = None
-
-    def embed(self, text: str) -> list[float]:
-        r = self._client.embed(texts=[text], model=self._model, input_type="search_document")
-        self._dimension = len(r.embeddings[0])
-        return r.embeddings[0]
-
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        r = self._client.embed(texts=texts, model=self._model, input_type="search_document")
-        if self._dimension is None:
-            self._dimension = len(r.embeddings[0])
-        return r.embeddings
-
-    def get_dimension(self) -> int:
-        if self._dimension is None:
-            self.embed("probe")
-        return self._dimension
-
-    def get_provider(self) -> str:
-        return f"cohere/{self._model}"
-```
-
-Then set `EMBEDDING_PROVIDER=cohere` and add routing logic in `src/server.py`'s `_get_embedder()` function.
-
-**Other providers (AWS Bedrock, Hugging Face, etc.):** See [docs/custom-embedding-providers.md](docs/custom-embedding-providers.md) for a step-by-step guide to creating your own adapter. The interface is four methods and typically under 30 lines of code.
-
-### Indexing a codebase
-
-*Agents search code by meaning, not grep. One-time indexing turns your codebase into a searchable vector space where "find auth middleware" returns the actual functions, not string matches.*
+*One-time indexing turns your codebase into a searchable vector space. Agents search by meaning, not keywords.*
 
 ```mermaid
 sequenceDiagram
@@ -135,9 +145,9 @@ sequenceDiagram
     FM-->>S: {status: indexed}
 ```
 
-### Semantic code search
+#### Semantic code search
 
-*Agents find relevant code without knowing exact names or file locations. A natural language query returns ranked code snippets with file paths and line numbers, saving tokens by not reading entire files.*
+*Agents find relevant code without knowing exact names or file paths. Saves tokens by returning specific functions, not entire files.*
 
 ```mermaid
 sequenceDiagram
@@ -154,9 +164,9 @@ sequenceDiagram
     FM-->>A: [{file, lines, snippet, score}]
 ```
 
-### Storing and searching memory
+#### Storing and searching memory
 
-*Agents remember what they learn across sessions. When Agent A discovers "this service uses JWT, not sessions," that knowledge persists and is findable by any agent later, through both keyword and semantic search.*
+*Agent discoveries persist across sessions. Agent A learns something today, Agent B finds it next week, via both keyword and semantic search.*
 
 ```mermaid
 sequenceDiagram
@@ -180,9 +190,9 @@ sequenceDiagram
     FM-->>A: Merged ranked results
 ```
 
-### Multi-agent coordination
+#### Multi-agent coordination
 
-*Without coordination, concurrent agents create merge conflicts and duplicate work. This flow prevents that: agents declare what files they are touching, get blocked if another agent is already there, and automatically receive discoveries relevant to their work area.*
+*Prevents merge conflicts and wasted work. Agents declare their work area, get blocked on conflicts, and automatically receive relevant discoveries from other agents.*
 
 ```mermaid
 sequenceDiagram
@@ -214,9 +224,9 @@ sequenceDiagram
     FM-->>B: ["uses JWT"]
 ```
 
-### Merge impact preview
+#### Merge impact preview
 
-*Before merging, you can see exactly which in-flight agents will be affected, which memories will go stale, and who needs to be notified. After merging, one call updates everyone. No more "Agent B was working on stale code for 30 minutes because Agent A merged without telling anyone."*
+*Before merging, see exactly who will be affected. After merging, notify everyone in one call. Eliminates "Agent B was working on stale code for 30 minutes because Agent A merged silently."*
 
 ```mermaid
 sequenceDiagram
@@ -238,15 +248,30 @@ sequenceDiagram
     FM->>M: Mark anchors stale
 ```
 
+### Embedding providers
+
+The default is Ollama (local, free). fleet-mem also ships an OpenAI-compatible adapter that works with any provider offering an OpenAI-style embeddings API.
+
+| Provider | Setup | Cost |
+|----------|-------|------|
+| **Ollama** (default) | Install Ollama, `ollama pull nomic-embed-text` | Free |
+| **OpenAI** | Set `EMBEDDING_PROVIDER=openai-compat`, `EMBED_API_KEY`, `EMBED_MODEL=text-embedding-3-small` | ~$0.02/1M tokens |
+| **DeepSeek** | Set `EMBED_BASE_URL=https://api.deepseek.com/v1`, `EMBED_API_KEY`, `EMBED_MODEL=deepseek-embed` | ~$0.01/1M tokens |
+| **Gemini** | Set `EMBED_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/`, `EMBED_API_KEY`, `EMBED_MODEL=text-embedding-004` | Free tier available |
+| **Together** | Set `EMBED_BASE_URL=https://api.together.xyz/v1`, `EMBED_API_KEY`, model of choice | Varies |
+| **Local vLLM** | Set `EMBED_BASE_URL=http://localhost:8000/v1`, no API key needed | Free |
+
+See `.env.example` for full configuration. For providers without an OpenAI-compatible API (Cohere, AWS Bedrock, Hugging Face), see [docs/custom-embedding-providers.md](docs/custom-embedding-providers.md). The adapter interface is four methods and typically under 30 lines.
+
 ## Features
 
 ### Code understanding
 
-- **Semantic search**: "find auth middleware" returns relevant functions, not just string matches
+- **Semantic search**: "find auth middleware" returns relevant functions, not string matches
 - **Symbol lookup**: find function/class definitions across indexed projects
 - **Dependency analysis**: trace what calls or imports a given symbol
 - **Incremental sync**: xxHash Merkle tree detects file changes, re-indexes only deltas
-- **Branch-aware indexing**: overlay collections for feature branches keep branch-specific changes isolated from the main index
+- **Branch-aware indexing**: overlay collections for feature branches keep changes isolated from the main index
 
 ### Fleet coordination
 
@@ -255,51 +280,20 @@ sequenceDiagram
 - **Merge impact preview**: before merging, see which in-flight agents would be affected
 - **Post-merge notification**: after merging, automatically notify affected agents and mark stale context
 
-## Getting started
-
-### Prerequisites
-
-- Python 3.11+
-- [Ollama](https://ollama.ai) running locally (any install method: brew, systemd, Docker)
-- The `nomic-embed-text` model pulled: `ollama pull nomic-embed-text`
-
-### Setup
-
-```bash
-git clone https://github.com/sam-ent/fleet-mem.git
-cd fleet-mem
-
-# Install: creates venv, installs deps, registers MCP server
-./scripts/setup.sh
-
-# Index your codebases (searches for git repos under the given root)
-./scripts/index-repos.sh --root ~/projects
-```
-
-fleet-mem registers itself as a global MCP server. Your MCP client starts it automatically on first tool call. No per-project setup needed.
-
-### Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/setup.sh` | One-time install: venv, dependencies, Ollama check, MCP registration |
-| `scripts/index-repos.sh` | Find git repos under a root directory and index each one |
-| `scripts/import-flat-files.py` | Import existing memory files (markdown with YAML frontmatter) |
-| `scripts/embed-existing-nodes.py` | Embed existing memory DB nodes into ChromaDB for semantic search |
-
 ## Configuration
 
 All settings via environment variables or a `.env` file in the project root. Copy `.env.example` to get started.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint. Standard port for all install methods |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name. Any Ollama-compatible model works |
-| `CHROMA_PATH` | `~/.local/share/fleet-mem/chroma` | ChromaDB persistent storage |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
+| `EMBEDDING_PROVIDER` | `ollama` | Provider: `ollama` or `openai-compat` |
+| `CHROMA_PATH` | `~/.local/share/fleet-mem/chroma` | ChromaDB storage |
 | `MEMORY_DB_PATH` | `~/.local/share/fleet-mem/memory.db` | Agent memory database |
-| `FLEET_DB_PATH` | `~/.local/share/fleet-mem/fleet.db` | Fleet coordination database (locks, subscriptions) |
-| `SYNC_INTERVAL` | `300` | Background code index sync interval in seconds (see below) |
-| `MCP_SETTINGS_FILE` | `~/.claude/settings.json` | MCP client settings file. Override for non-default clients |
+| `FLEET_DB_PATH` | `~/.local/share/fleet-mem/fleet.db` | Fleet coordination database |
+| `SYNC_INTERVAL` | `300` | Background code index sync (seconds) |
+| `MCP_SETTINGS_FILE` | `~/.claude/settings.json` | MCP client settings path |
 
 ### Background sync timing
 
@@ -310,7 +304,16 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | **Lock acquire/release** | Immediate | Direct SQLite write |
 | **Notifications** | Immediate | Created on `memory_store` if subscriptions match |
 
-For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. The poll walks the filesystem and hashes files, so very low intervals (under 10s) may use noticeable CPU on large repos. A future release will add file-watching for near-instant sync.
+For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future release will add file-watching for near-instant sync.
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/setup.sh` | One-time install: venv, dependencies, Ollama check, MCP registration |
+| `scripts/index-repos.sh` | Find git repos under a root directory and index each one |
+| `scripts/import-flat-files.py` | Import existing memory files (markdown with YAML frontmatter) |
+| `scripts/embed-existing-nodes.py` | Embed existing memory DB nodes into ChromaDB for semantic search |
 
 ## MCP tools reference
 
@@ -356,17 +359,20 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. The poll 
 | `get_branches` | `path` | List indexed branches with chunk counts |
 | `cleanup_branch` | `path, branch` | Drop a branch overlay after merge |
 
+## What's next
+
+- [ ] Recursive AST splitting for nested methods and classes
+- [ ] Local embedding cache for near-instant re-indexing
+- [ ] Ghost chunk cleanup (stale vector reconciliation)
+- [ ] Hierarchical Merkle sync for large monorepos
+- [ ] Docker Compose deployment (fleet-mem + Ollama in one container)
+- [ ] File-watching for near-instant sync (replace polling)
+
+See [roadmap.md](roadmap.md) for the full plan.
+
 ## Acknowledgments
 
-Architecture inspired by [claude-context](https://github.com/zilliztech/claude-context) by Zilliz (MIT License). The following design patterns were informed by their TypeScript reference:
-
-- Vector database abstraction with collection-based storage
-- Embedding adapter with auto-dimension detection and batch chunking
-- Merkle DAG for file change detection with snapshot comparison
-- File synchronizer with JSON snapshot persistence
-- AST splitter with per-language tree-sitter node-type tables
-
-All code is an original Python implementation with significant additions (agent memory, fleet coordination, hybrid search, staleness detection).
+Architecture inspired by [claude-context](https://github.com/zilliztech/claude-context) by Zilliz (MIT License). Design patterns informed by their TypeScript reference (vector database abstraction, embedding adapter, Merkle DAG, AST splitter). All code is an original Python implementation with significant additions (agent memory, fleet coordination, hybrid search, staleness detection).
 
 ## License
 
