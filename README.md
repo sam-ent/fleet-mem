@@ -112,9 +112,9 @@ Then set `EMBEDDING_PROVIDER=cohere` and add routing logic in `src/server.py`'s 
 
 **Other providers (AWS Bedrock, Hugging Face, etc.):** See [docs/custom-embedding-providers.md](docs/custom-embedding-providers.md) for a step-by-step guide to creating your own adapter. The interface is four methods and typically under 30 lines of code.
 
-## Process flows
+### Process flows
 
-### Flow 1: Indexing a codebase
+#### Indexing a codebase
 
 ```mermaid
 sequenceDiagram
@@ -134,7 +134,7 @@ sequenceDiagram
     FM-->>A: {status: "indexed", chunks: 1523}
 ```
 
-### Flow 2: Semantic code search
+#### Semantic code search
 
 ```mermaid
 sequenceDiagram
@@ -151,7 +151,7 @@ sequenceDiagram
     FM-->>A: [{file, line_range, snippet, score}]
 ```
 
-### Flow 3: Multi-agent coordination
+#### Multi-agent coordination
 
 ```mermaid
 sequenceDiagram
@@ -174,7 +174,7 @@ sequenceDiagram
     A->>FM: lock_release("agent-a", project)
 ```
 
-### Flow 4: Merge impact preview
+#### Merge impact preview
 
 ```mermaid
 sequenceDiagram
