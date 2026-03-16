@@ -125,7 +125,8 @@ AST-aware splitting means search results are complete, meaningful code units. Te
 
 #### Indexing a codebase
 
-*One-time indexing turns your codebase into a searchable vector space. Agents search by meaning, not keywords.*
+> **Problem:** Agents read entire files to understand code, burning tokens and missing context across files.
+> **Solution:** One-time indexing parses code into semantic chunks and embeds them. Agents search by meaning across the whole codebase.
 
 ```mermaid
 sequenceDiagram
@@ -147,7 +148,8 @@ sequenceDiagram
 
 #### Semantic code search
 
-*Agents find relevant code without knowing exact names or file paths. Saves tokens by returning specific functions, not entire files.*
+> **Problem:** Grep requires exact strings. Agents don't know file names or function signatures in unfamiliar code.
+> **Solution:** Natural language query returns ranked code snippets with file paths and line numbers. No exact match needed.
 
 ```mermaid
 sequenceDiagram
@@ -166,7 +168,8 @@ sequenceDiagram
 
 #### Storing and searching memory
 
-*Agent discoveries persist across sessions. Agent A learns something today, Agent B finds it next week, via both keyword and semantic search.*
+> **Problem:** Agents lose everything they learn when a session ends. The next agent re-discovers the same things from scratch.
+> **Solution:** Discoveries persist in a shared memory store. Any agent can find them later via keyword or semantic search.
 
 ```mermaid
 sequenceDiagram
@@ -192,7 +195,8 @@ sequenceDiagram
 
 #### Multi-agent coordination
 
-*Prevents merge conflicts and wasted work. Agents declare their work area, get blocked on conflicts, and automatically receive relevant discoveries from other agents.*
+> **Problem:** Concurrent agents modify the same files, causing merge conflicts and duplicated effort. No one knows what anyone else is doing.
+> **Solution:** Agents declare their work area, get blocked on conflicts before they start, and automatically receive discoveries from other agents working nearby.
 
 ```mermaid
 sequenceDiagram
@@ -226,7 +230,8 @@ sequenceDiagram
 
 #### Merge impact preview
 
-*Before merging, see exactly who will be affected. After merging, notify everyone in one call. Eliminates "Agent B was working on stale code for 30 minutes because Agent A merged silently."*
+> **Problem:** Agent A merges a PR. Agents B and C are still working on branches that now have stale context. No one tells them.
+> **Solution:** Before merging, see exactly which agents, memories, and branches will be affected. After merging, one call notifies everyone and marks stale context.
 
 ```mermaid
 sequenceDiagram
