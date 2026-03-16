@@ -16,6 +16,7 @@ class ASTChunk:
     end_line: int
     chunk_type: str  # e.g. "function", "class", "method", "module_header"
     name: str | None = None
+    parent_name: str | None = None
 
 
 # Node types to extract per language
@@ -59,6 +60,26 @@ _LANGUAGE_LOADERS: dict[str, tuple[str, str]] = {
     "javascript": ("tree_sitter_javascript", "language"),
     "tsx": ("tree_sitter_typescript", "language_tsx"),
 }
+
+# Container node types that should be walked into for nested definitions
+_CONTAINER_TYPES: dict[str, set[str]] = {
+    "python": {"class_definition"},
+    "typescript": {"class_declaration"},
+    "javascript": {"class_declaration"},
+    "go": set(),
+    "rust": {"impl_item"},
+}
+
+# Node types considered definitions when nested inside a container
+_NESTED_DEFINITION_TYPES: dict[str, set[str]] = {
+    "python": {"function_definition", "decorated_definition"},
+    "typescript": {"method_definition", "public_field_definition"},
+    "javascript": {"method_definition", "public_field_definition"},
+    "go": set(),
+    "rust": {"function_item"},
+}
+
+_MIN_CHUNK_LINES = 3
 
 # Cache loaded languages
 _language_cache: dict[str, Language] = {}
@@ -138,6 +159,80 @@ def _text_of(node, source_bytes: bytes) -> str:
     return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
 
 
+def _get_signature_line(node, source_bytes: bytes) -> str:
+    """Extract the first line of a node (its signature)."""
+    text = _text_of(node, source_bytes)
+    return text.split("\n", 1)[0]
+
+
+def _is_container(node, language: str) -> bool:
+    """Check if a node is a container that should be walked into."""
+    containers = _CONTAINER_TYPES.get(language, set())
+    if node.type in containers:
+        return True
+    # Check inside wrapper nodes (decorated_definition, export_statement)
+    if node.type in ("decorated_definition", "export_statement"):
+        for child in node.children:
+            if child.type in containers:
+                return True
+    return False
+
+
+def _get_inner_container(node, language: str):
+    """For wrapper nodes, return the inner container node. Otherwise return node."""
+    containers = _CONTAINER_TYPES.get(language, set())
+    if node.type in ("decorated_definition", "export_statement"):
+        for child in node.children:
+            if child.type in containers:
+                return child
+    return node
+
+
+def _extract_nested_chunks(
+    container_node,
+    source_bytes: bytes,
+    language: str,
+    parent_sig: str,
+    parent_name: str | None,
+) -> list[ASTChunk]:
+    """Extract nested definitions from a container node with breadcrumbs."""
+    nested_defs = _NESTED_DEFINITION_TYPES.get(language, set())
+    chunks: list[ASTChunk] = []
+
+    # Walk the body of the container to find nested definitions
+    inner = _get_inner_container(container_node, language)
+    for child in inner.children:
+        # Check direct children and also children of body nodes
+        candidates = [child]
+        if child.type in ("block", "declaration_list", "class_body"):
+            candidates = list(child.children)
+
+        for candidate in candidates:
+            if candidate.type not in nested_defs:
+                continue
+            child_text = _text_of(candidate, source_bytes)
+            line_count = child_text.count("\n") + 1
+            if line_count < _MIN_CHUNK_LINES:
+                continue
+
+            breadcrumb = f"{parent_sig}\n    {child_text}"
+            start_line = candidate.start_point[0] + 1
+            end_line = candidate.end_point[0] + 1
+
+            chunks.append(
+                ASTChunk(
+                    content=breadcrumb,
+                    start_line=start_line,
+                    end_line=end_line,
+                    chunk_type=_chunk_type_from_node(candidate.type),
+                    name=_node_name(candidate),
+                    parent_name=parent_name,
+                )
+            )
+
+    return chunks
+
+
 def split_ast(
     source: str,
     language: str,
@@ -203,8 +298,20 @@ def split_ast(
                         )
                     )
 
+            # Check if this is a container node with nested definitions
+            if _is_container(child, language):
+                parent_sig = _get_signature_line(child, source_bytes)
+                parent_name = _node_name(child)
+                nested = _extract_nested_chunks(
+                    child, source_bytes, language, parent_sig, parent_name
+                )
+                if nested:
+                    chunks.extend(nested)
+                    last_end_byte = child.end_byte
+                    continue
+
+            # Non-container or container with no extractable children: emit whole
             node_text = _text_of(child, source_bytes)
-            # start_point is (row, col), rows are 0-indexed
             start_line = child.start_point[0] + 1
             end_line = child.end_point[0] + 1
 

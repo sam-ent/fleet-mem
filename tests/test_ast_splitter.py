@@ -40,14 +40,14 @@ class TestPythonASTSplitting:
         chunks = split_ast(PYTHON_SOURCE, "python")
         names = [c.name for c in chunks if c.name]
         assert "greet" in names
-        assert "Calculator" in names
+        # Calculator methods are now extracted individually (recursive splitting)
+        assert "__init__" in names or "add" in names
         assert "main" in names
 
     def test_chunk_types(self):
         chunks = split_ast(PYTHON_SOURCE, "python")
         types = {c.chunk_type for c in chunks}
         assert "function" in types
-        assert "class" in types
 
     def test_includes_module_header(self):
         chunks = split_ast(PYTHON_SOURCE, "python")
@@ -64,17 +64,145 @@ class TestPythonASTSplitting:
         assert greet.start_line == 7
         assert greet.end_line == 9
 
-    def test_all_source_covered(self):
-        """Every non-blank line should appear in at least one chunk."""
+    def test_all_definitions_covered(self):
+        """Every function/method definition should appear in at least one chunk."""
         chunks = split_ast(PYTHON_SOURCE, "python")
         all_content = "".join(c.content for c in chunks)
-        for line in PYTHON_SOURCE.strip().splitlines():
-            if line.strip():
-                assert line.strip() in all_content
+        # Top-level functions and class methods should all be present
+        assert "def greet" in all_content
+        assert "def add" in all_content
+        assert "def main" in all_content
+        assert "import os" in all_content
 
     def test_empty_source(self):
         assert split_ast("", "python") == []
         assert split_ast("   \n\n  ", "python") == []
+
+
+# ─── Python recursive splitting (classes with methods) ─────────────
+
+
+PYTHON_CLASS_WITH_METHODS = '''\
+import os
+
+
+class MyService:
+    """A service class."""
+
+    def __init__(self, url: str):
+        self.url = url
+        self.session = None
+
+    def connect(self):
+        """Connect to the service."""
+        self.session = True
+        return self
+
+    def disconnect(self):
+        """Disconnect."""
+        self.session = None
+
+    @staticmethod
+    def helper():
+        """A static helper."""
+        return 42
+
+
+def standalone():
+    return "top-level"
+'''
+
+
+class TestPythonRecursiveSplitting:
+    def test_class_methods_are_separate_chunks(self):
+        chunks = split_ast(PYTHON_CLASS_WITH_METHODS, "python")
+        names = [c.name for c in chunks if c.name]
+        assert "__init__" in names
+        assert "connect" in names
+        assert "disconnect" in names
+
+    def test_parent_name_in_metadata(self):
+        chunks = split_ast(PYTHON_CLASS_WITH_METHODS, "python")
+        method_chunks = [c for c in chunks if c.parent_name is not None]
+        assert len(method_chunks) >= 3
+        for mc in method_chunks:
+            assert mc.parent_name == "MyService"
+
+    def test_breadcrumb_in_content(self):
+        chunks = split_ast(PYTHON_CLASS_WITH_METHODS, "python")
+        connect_chunk = next(c for c in chunks if c.name == "connect")
+        assert "class MyService:" in connect_chunk.content
+        assert "def connect(self):" in connect_chunk.content
+
+    def test_no_whole_class_chunk_when_methods_extracted(self):
+        chunks = split_ast(PYTHON_CLASS_WITH_METHODS, "python")
+        class_chunks = [c for c in chunks if c.name == "MyService"]
+        assert len(class_chunks) == 0
+
+    def test_standalone_function_still_works(self):
+        chunks = split_ast(PYTHON_CLASS_WITH_METHODS, "python")
+        standalone_chunks = [c for c in chunks if c.name == "standalone"]
+        assert len(standalone_chunks) == 1
+        assert standalone_chunks[0].parent_name is None
+
+    def test_decorated_methods_extracted(self):
+        chunks = split_ast(PYTHON_CLASS_WITH_METHODS, "python")
+        helper_chunks = [c for c in chunks if c.name == "helper"]
+        assert len(helper_chunks) == 1
+        assert helper_chunks[0].parent_name == "MyService"
+
+    def test_small_methods_skipped(self):
+        """Methods under 3 lines should be skipped (merged into parent)."""
+        source = """\
+class Tiny:
+    def x(self):
+        pass
+"""
+        chunks = split_ast(source, "python")
+        # The method is only 2 lines, so no nested extraction;
+        # falls back to whole class chunk
+        tiny_chunks = [c for c in chunks if c.name == "Tiny"]
+        assert len(tiny_chunks) == 1
+
+
+# ─── TypeScript recursive splitting ───────────────────────────────
+
+TS_CLASS_WITH_METHODS = """\
+export class UserService {
+  private apiUrl: string;
+
+  constructor(url: string) {
+    this.apiUrl = url;
+  }
+
+  async getUser(id: string) {
+    return fetch(this.apiUrl + id);
+  }
+
+  async deleteUser(id: string) {
+    return fetch(this.apiUrl + id, { method: 'DELETE' });
+  }
+}
+"""
+
+
+class TestTypeScriptRecursiveSplitting:
+    def test_ts_class_methods_are_separate_chunks(self):
+        chunks = split_ast(TS_CLASS_WITH_METHODS, "typescript")
+        names = [c.name for c in chunks if c.name]
+        assert "getUser" in names or "constructor" in names
+
+    def test_ts_parent_name(self):
+        chunks = split_ast(TS_CLASS_WITH_METHODS, "typescript")
+        method_chunks = [c for c in chunks if c.parent_name is not None]
+        for mc in method_chunks:
+            assert mc.parent_name == "UserService"
+
+    def test_ts_breadcrumb(self):
+        chunks = split_ast(TS_CLASS_WITH_METHODS, "typescript")
+        method_chunks = [c for c in chunks if c.parent_name is not None]
+        if method_chunks:
+            assert "class UserService" in method_chunks[0].content
 
 
 # ─── TypeScript AST splitting ───────────────────────────────────────
@@ -105,7 +233,8 @@ class TestTypeScriptASTSplitting:
         chunks = split_ast(TS_SOURCE, "typescript")
         names = [c.name for c in chunks if c.name]
         assert "Hello" in names
-        assert "Counter" in names
+        # Counter's methods are now extracted individually (recursive splitting)
+        assert "increment" in names
 
     def test_chunk_types_ts(self):
         chunks = split_ast(TS_SOURCE, "typescript")

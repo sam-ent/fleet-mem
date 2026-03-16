@@ -51,11 +51,13 @@ def _get_db(config=None):
 
 
 def _get_embedder(config=None):
+    from .embedding.cache import CachedEmbedding, EmbeddingCache
+
     cfg = config or _get_config()
     if cfg.embedding_provider == "openai-compat":
         from .embedding.openai_compat import OpenAICompatibleEmbedding
 
-        return OpenAICompatibleEmbedding(
+        inner = OpenAICompatibleEmbedding(
             api_key=cfg.embed_api_key,
             base_url=cfg.embed_base_url,
             model=cfg.embed_model or None,
@@ -63,7 +65,10 @@ def _get_embedder(config=None):
     else:
         from .embedding.ollama_embed import OllamaEmbedding
 
-        return OllamaEmbedding(cfg)
+        inner = OllamaEmbedding(cfg)
+
+    cache = EmbeddingCache(cfg.embed_cache_path)
+    return CachedEmbedding(inner=inner, cache=cache)
 
 
 def _get_memory(config=None):
@@ -417,6 +422,22 @@ def cleanup_branch(
 
 
 # ---------------------------------------------------------------------------
+# Tool: clear_embedding_cache
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Clear the embedding vector cache. Forces re-embedding on next use.")
+def clear_embedding_cache() -> dict[str, str]:
+    """Wipe all cached embedding vectors."""
+    from .embedding.cache import EmbeddingCache
+
+    cfg = _get_config()
+    cache = EmbeddingCache(cfg.embed_cache_path)
+    cache.clear()
+    return {"status": "cleared"}
+
+
+# ---------------------------------------------------------------------------
 # Tool: get_index_status
 # ---------------------------------------------------------------------------
 
@@ -746,6 +767,41 @@ def memory_promote(
     return {"id": memory_id, "status": "promoted"}
 
 
+@mcp.tool(description="Remove ghost chunks whose source files no longer exist.")
+def reconcile(
+    path: str,
+) -> dict[str, Any]:
+    """Run full reconciliation on a project's collection.
+
+    Scans all chunks and deletes any whose source file no longer exists on disk.
+    """
+    from .sync.reconciler import ChunkReconciler
+
+    project = _project_name_from_path(path)
+    collection_name = f"code_{project}"
+    config = _get_config()
+    db = _get_db(config)
+
+    if not db.has_collection(collection_name):
+        return {"project": project, "status": "no_collection", "orphans_removed": 0}
+
+    # Build set of existing files by scanning the project directory
+    root = Path(path).resolve()
+    if not root.is_dir():
+        return {"project": project, "status": "path_not_found", "orphans_removed": 0}
+
+    from .splitter.file_scanner import scan_files
+
+    existing_files: set[str] = set()
+    for file_path, _lang, _content in scan_files(root):
+        existing_files.add(str(file_path.relative_to(root)))
+
+    reconciler = ChunkReconciler(db)
+    removed = reconciler.full_reconcile(collection_name, existing_files)
+
+    return {"project": project, "status": "reconciled", "orphans_removed": removed}
+
+
 @mcp.tool(description="Check for stale file anchors in memory.")
 def stale_check(
     project_path: str | None = None,
@@ -777,7 +833,10 @@ def _make_reindex_callback(config):
         # Each BackgroundSync instance is bound to a project. We delete old chunks
         # for changed/removed files so the next full index picks them up fresh.
         try:
+            from .sync.reconciler import ChunkReconciler
+
             db = _get_db(config)
+            reconciler = ChunkReconciler(db)
 
             # Identify which projects are affected (group by top-level dir)
             projects: dict[str, list[str]] = {}
@@ -789,24 +848,21 @@ def _make_reindex_callback(config):
             for project, files in projects.items():
                 collection_name = f"code_{project}"
                 logger.info("Re-indexing %d files in %s", len(files), project)
-                # Delete old chunks for changed files
                 if db.has_collection(collection_name):
                     for fp in files:
-                        try:
-                            db.delete_by_metadata(collection_name, "file_path", fp)
-                        except Exception:
-                            pass  # collection may not support this yet
+                        reconciler.reconcile_file(collection_name, fp)
 
-            # Delete chunks for removed files
+            # Delete chunks for removed files (grouped by project)
+            removed_by_project: dict[str, list[str]] = {}
             for fp in removed_files:
                 parts = Path(fp).parts
                 project = parts[0] if parts else "unknown"
+                removed_by_project.setdefault(project, []).append(fp)
+
+            for project, files in removed_by_project.items():
                 collection_name = f"code_{project}"
                 if db.has_collection(collection_name):
-                    try:
-                        db.delete_by_metadata(collection_name, "file_path", fp)
-                    except Exception:
-                        pass
+                    reconciler.reconcile_removed_files(collection_name, files)
 
         except Exception:
             logger.exception("Reindex callback failed")

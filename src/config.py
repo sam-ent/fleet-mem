@@ -48,6 +48,13 @@ class Config:
         )
     )
 
+    # Embedding cache
+    embed_cache_path: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get("EMBED_CACHE_PATH", str(_DEFAULT_DIR / "embeddings_cache.db"))
+        )
+    )
+
     # Fleet SQLite DB
     fleet_db_path: Path = field(
         default_factory=lambda: Path(
