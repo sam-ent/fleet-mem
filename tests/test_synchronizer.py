@@ -46,11 +46,11 @@ class TestFileSynchronizer:
         assert isinstance(snap["files"], dict)
         assert len(snap["files"]) == 3
 
-    def test_scan_hashes_are_sha1(self, tmp_config, tmp_project):
+    def test_scan_hashes_are_xxhash(self, tmp_config, tmp_project):
         sync = FileSynchronizer(tmp_config)
         snap = sync.scan(tmp_project)
         for h in snap["files"].values():
-            assert len(h) == 40  # SHA-1 hex length
+            assert len(h) == 16  # xxh3_64 hex length
 
     def test_scan_ignores_pycache(self, tmp_config, tmp_project):
         cache = tmp_project / "__pycache__"

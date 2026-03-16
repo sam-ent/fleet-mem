@@ -1,9 +1,10 @@
 """Memory embedding and hybrid search via ChromaDB + FTS5."""
 
-import hashlib
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+import xxhash
 
 from src.embedding.base import Embedding
 from src.memory.engine import MemoryEngine
@@ -96,7 +97,7 @@ class MemoryEmbedder:
 
         # Create file anchor if file_path provided
         if file_path:
-            file_hash = _sha1_file(file_path)
+            file_hash = _hash_file(file_path)
             anchor_id = uuid.uuid4().hex
             line_start = None
             line_end = None
@@ -191,7 +192,7 @@ class MemoryEmbedder:
             fp = anchor["file_path"]
             stored_hash = anchor["file_hash"]
             try:
-                current_hash = _sha1_file(fp)
+                current_hash = _hash_file(fp)
             except (FileNotFoundError, OSError):
                 current_hash = "<missing>"
             if current_hash != stored_hash:
@@ -207,8 +208,8 @@ class MemoryEmbedder:
         return stale
 
 
-def _sha1_file(file_path: str) -> str:
-    h = hashlib.sha1()
+def _hash_file(file_path: str) -> str:
+    h = xxhash.xxh3_64()
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)

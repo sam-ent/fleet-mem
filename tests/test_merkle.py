@@ -1,6 +1,6 @@
 """Tests for MerkleDAG and comparison logic."""
 
-import hashlib
+import xxhash
 
 from src.sync.merkle import MerkleDAG
 
@@ -10,7 +10,7 @@ class TestMerkleDAG:
         dag = MerkleDAG()
         content = b"hello world"
         h = dag.add_node("file.txt", content)
-        assert h == hashlib.sha1(content).hexdigest()
+        assert h == xxhash.xxh3_64(content).hexdigest()
 
     def test_nodes_property(self):
         dag = MerkleDAG()
@@ -40,7 +40,7 @@ class TestMerkleDAG:
 
     def test_empty_dag_root_hash(self):
         dag = MerkleDAG()
-        assert dag.root_hash == hashlib.sha1(b"").hexdigest()
+        assert dag.root_hash == xxhash.xxh3_64(b"").hexdigest()
 
 
 class TestMerkleCompare:

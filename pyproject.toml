@@ -18,6 +18,7 @@ dependencies = [
     "tree-sitter-javascript>=0.23.0",
     "tree-sitter-typescript>=0.23.0",
     "python-dotenv>=1.0.0",
+    "xxhash>=3.4.0",
 ]
 
 [project.optional-dependencies]

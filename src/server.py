@@ -124,7 +124,7 @@ def index_codebase(
 
         def _run_branch():
             try:
-                import hashlib
+                import xxhash
 
                 from .splitter.ast_splitter import split_ast, supported_languages
                 from .splitter.file_scanner import scan_files
@@ -160,7 +160,7 @@ def index_codebase(
                             meta["name"] = chunk.name
                         text = f"# {rel} (L{chunk.start_line}-L{chunk.end_line})\n{chunk.content}"
                         raw = f"{project}:{rel}:{chunk.start_line}-{chunk.end_line}"
-                        doc_id = hashlib.sha256(raw.encode()).hexdigest()[:16]
+                        doc_id = xxhash.xxh3_64(raw.encode()).hexdigest()
                         all_docs.append(VectorDocument(id=doc_id, content=text, metadata=meta))
 
                 # Embed

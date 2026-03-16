@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Callable
+
+import xxhash
 
 from src.embedding.base import Embedding
 from src.splitter.ast_splitter import ASTChunk, split_ast, supported_languages
@@ -22,7 +23,7 @@ ProgressCallback = Callable[[int, int, str], None]  # (current, total, message)
 def _chunk_id(project_name: str, file_path: str, start_line: int, end_line: int) -> str:
     """Generate a deterministic chunk ID."""
     raw = f"{project_name}:{file_path}:{start_line}-{end_line}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return xxhash.xxh3_64(raw.encode()).hexdigest()
 
 
 def _split_file(

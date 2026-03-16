@@ -1,9 +1,10 @@
 """File synchronizer: scans projects, manages snapshots."""
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+
+import xxhash
 
 from src.config import Config
 from src.sync.merkle import MerkleDAG
@@ -34,10 +35,10 @@ class FileSynchronizer:
         self._ignore = ignore_patterns if ignore_patterns is not None else DEFAULT_IGNORE
 
     def scan(self, project_path: Path) -> dict:
-        """Walk project files, compute SHA-1 hashes.
+        """Walk project files, compute xxHash digests.
 
         Returns snapshot dict:
-            {files: {relative_path: sha1}, root_hash: str, timestamp: str}
+            {files: {relative_path: hash}, root_hash: str, timestamp: str}
         """
         dag = MerkleDAG()
         project_path = project_path.resolve()
@@ -79,5 +80,5 @@ class FileSynchronizer:
 
     @staticmethod
     def file_hash(content: bytes) -> str:
-        """SHA-1 hex digest of content."""
-        return hashlib.sha1(content).hexdigest()
+        """xxh3_64 hex digest of content."""
+        return xxhash.xxh3_64(content).hexdigest()

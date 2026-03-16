@@ -57,7 +57,7 @@ graph LR
 | **[ChromaDB](https://www.trychroma.com/)** | Vector database with HNSW indexing | Purpose-built for similarity search over embeddings. SQLite can't do vector nearest-neighbor efficiently. Runs in-process (no separate server) |
 | **SQLite + FTS5** | Relational database with full-text search | Agent memories need both keyword search ("find all memories about auth") and structured queries (file anchors, staleness). FTS5 + ChromaDB vectors give hybrid ranking via reciprocal rank fusion |
 | **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** | Incremental parsing library | Splits code into semantic chunks (functions, classes, methods) instead of arbitrary character windows. This means search results are meaningful code units, not fragments. Supports 15+ languages |
-| **SHA-1 hashing** | File change detection (Merkle tree) | Used to detect which files changed between sync cycles. This is **not a security function** -- it is purely for diffing. SHA-1 is faster than SHA-256 and collision resistance is irrelevant for change detection. Linters may flag SHA-1 usage as a security warning -- this is a false positive in this context |
+| **[xxHash](https://xxhash.com) (xxh3_64)** | File change detection (Merkle tree) and chunk ID generation | Used to detect which files changed between sync cycles and to generate deterministic chunk document IDs. This is **not a security function** -- it is purely for diffing and identification. xxh3_64 is significantly faster than SHA-1 while providing excellent hash distribution |
 
 ### Embedding providers
 
@@ -245,7 +245,7 @@ sequenceDiagram
 - **Semantic search**: "find auth middleware" returns relevant functions, not just string matches
 - **Symbol lookup**: find function/class definitions across indexed projects
 - **Dependency analysis**: trace what calls or imports a given symbol
-- **Incremental sync**: SHA-1 Merkle tree detects file changes, re-indexes only deltas
+- **Incremental sync**: xxHash Merkle tree detects file changes, re-indexes only deltas
 - **Branch-aware indexing**: overlay collections for feature branches keep branch-specific changes isolated from the main index
 
 ### Fleet coordination
@@ -305,7 +305,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 
 | What | Timing | How |
 |------|--------|-----|
-| **Code index refresh** | Every `SYNC_INTERVAL` seconds (default: 300) | Polls filesystem, computes SHA-1 hashes, re-indexes changed files |
+| **Code index refresh** | Every `SYNC_INTERVAL` seconds (default: 300) | Polls filesystem, computes xxHash digests, re-indexes changed files |
 | **Agent memory writes** | Immediate | Direct SQLite + ChromaDB insert on `memory_store` call |
 | **Lock acquire/release** | Immediate | Direct SQLite write |
 | **Notifications** | Immediate | Created on `memory_store` if subscriptions match |

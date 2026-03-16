@@ -4,7 +4,7 @@ import hashlib
 
 import pytest
 
-from src.memory.embedder import MemoryEmbedder, _sha1_file
+from src.memory.embedder import MemoryEmbedder, _hash_file
 from src.memory.engine import MemoryEngine
 from src.vectordb.chromadb_store import ChromaDBStore
 
@@ -124,7 +124,7 @@ class TestMemoryStoreRoundTrip:
         anchors = engine.get_all_file_anchors()
         assert len(anchors) == 1
         assert anchors[0]["memory_id"] == node_id
-        assert anchors[0]["file_hash"] == _sha1_file(str(test_file))
+        assert anchors[0]["file_hash"] == _hash_file(str(test_file))
 
 
 class TestStaleCheck:
