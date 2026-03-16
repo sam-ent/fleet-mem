@@ -1,6 +1,9 @@
 """Tests for OpenAI-compatible embedding adapter (mocked, no API needed)."""
 
+import pytest
 from unittest.mock import MagicMock, patch
+
+openai = pytest.importorskip("openai", reason="openai package not installed")
 
 from src.embedding.openai_compat import OpenAICompatibleEmbedding
 
