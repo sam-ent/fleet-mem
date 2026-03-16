@@ -57,6 +57,7 @@ graph LR
 | **[ChromaDB](https://www.trychroma.com/)** | Vector database with HNSW indexing | Purpose-built for similarity search over embeddings. SQLite can't do vector nearest-neighbor efficiently. Runs in-process (no separate server) |
 | **SQLite + FTS5** | Relational database with full-text search | Agent memories need both keyword search ("find all memories about auth") and structured queries (file anchors, staleness). FTS5 + ChromaDB vectors give hybrid ranking via reciprocal rank fusion |
 | **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** | Incremental parsing library | Splits code into semantic chunks (functions, classes, methods) instead of arbitrary character windows. This means search results are meaningful code units, not fragments. Supports 15+ languages |
+| **SHA-1 hashing** | File change detection (Merkle tree) | Used to detect which files changed between sync cycles. This is **not a security function** -- it is purely for diffing. SHA-1 is faster than SHA-256 and collision resistance is irrelevant for change detection. Linters may flag SHA-1 usage as a security warning -- this is a false positive in this context |
 
 ### Embedding providers
 
