@@ -58,11 +58,57 @@ graph LR
 | **SQLite + FTS5** | Relational database with full-text search | Agent memories need both keyword search ("find all memories about auth") and structured queries (file anchors, staleness). FTS5 + ChromaDB vectors give hybrid ranking via reciprocal rank fusion |
 | **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** | Incremental parsing library | Splits code into semantic chunks (functions, classes, methods) instead of arbitrary character windows. This means search results are meaningful code units, not fragments. Supports 15+ languages |
 
-### Embedding model
+### Embedding providers
 
-The default model is `nomic-embed-text` (768 dimensions, ~137M params). It runs locally via Ollama at zero cost per query. You can switch to any Ollama-compatible embedding model by setting `OLLAMA_EMBED_MODEL`.
+The default is Ollama (local, free). fleet-mem also ships an OpenAI-compatible adapter that works with any provider offering an OpenAI-style embeddings API.
 
-**Alternatives:** If you prefer cloud embeddings (OpenAI, Cohere, Voyage), implement the `Embedding` base class in `src/embedding/base.py`. The interface is four methods: `embed`, `embed_batch`, `get_dimension`, `get_provider`.
+| Provider | Setup | Cost |
+|----------|-------|------|
+| **Ollama** (default) | Install Ollama, `ollama pull nomic-embed-text` | Free |
+| **OpenAI** | Set `EMBEDDING_PROVIDER=openai-compat`, `EMBED_API_KEY`, `EMBED_MODEL=text-embedding-3-small` | ~$0.02/1M tokens |
+| **DeepSeek** | Set `EMBED_BASE_URL=https://api.deepseek.com/v1`, `EMBED_API_KEY`, `EMBED_MODEL=deepseek-embed` | ~$0.01/1M tokens |
+| **Together** | Set `EMBED_BASE_URL=https://api.together.xyz/v1`, `EMBED_API_KEY`, model of choice | Varies |
+| **Fireworks** | Set `EMBED_BASE_URL=https://api.fireworks.ai/inference/v1`, `EMBED_API_KEY`, model of choice | Varies |
+| **Local vLLM** | Set `EMBED_BASE_URL=http://localhost:8000/v1`, no API key needed | Free |
+
+See `.env.example` for full configuration details.
+
+**Gemini:** Google offers an [OpenAI-compatible endpoint](https://ai.google.dev/gemini-api/docs/openai). Set `EMBED_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/`, `EMBED_API_KEY` to your Gemini API key, and `EMBED_MODEL=text-embedding-004`.
+
+**Cohere:** Cohere does not offer an OpenAI-compatible API. To use Cohere embeddings, create a custom adapter by subclassing `src/embedding/base.py`:
+
+```python
+# src/embedding/cohere_embed.py
+import cohere
+from src.embedding.base import Embedding
+
+class CohereEmbedding(Embedding):
+    def __init__(self, api_key: str, model: str = "embed-english-v3.0"):
+        self._client = cohere.Client(api_key)
+        self._model = model
+        self._dimension = None
+
+    def embed(self, text: str) -> list[float]:
+        r = self._client.embed(texts=[text], model=self._model, input_type="search_document")
+        self._dimension = len(r.embeddings[0])
+        return r.embeddings[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        r = self._client.embed(texts=texts, model=self._model, input_type="search_document")
+        if self._dimension is None:
+            self._dimension = len(r.embeddings[0])
+        return r.embeddings
+
+    def get_dimension(self) -> int:
+        if self._dimension is None:
+            self.embed("probe")
+        return self._dimension
+
+    def get_provider(self) -> str:
+        return f"cohere/{self._model}"
+```
+
+Then set `EMBEDDING_PROVIDER=cohere` and add routing logic in `src/server.py`'s `_get_embedder()` function.
 
 ## Process flows
 

@@ -51,10 +51,19 @@ def _get_db(config=None):
 
 
 def _get_embedder(config=None):
-    from .embedding.ollama_embed import OllamaEmbedding
-
     cfg = config or _get_config()
-    return OllamaEmbedding(cfg)
+    if cfg.embedding_provider == "openai-compat":
+        from .embedding.openai_compat import OpenAICompatibleEmbedding
+
+        return OpenAICompatibleEmbedding(
+            api_key=cfg.embed_api_key,
+            base_url=cfg.embed_base_url,
+            model=cfg.embed_model or None,
+        )
+    else:
+        from .embedding.ollama_embed import OllamaEmbedding
+
+        return OllamaEmbedding(cfg)
 
 
 def _get_memory(config=None):

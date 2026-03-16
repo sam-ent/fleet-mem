@@ -21,6 +21,11 @@ class Config:
         default_factory=lambda: Path(os.environ.get("CHROMA_PATH", str(_DEFAULT_DIR / "chroma")))
     )
 
+    # Embedding provider: "ollama" or "openai-compat"
+    embedding_provider: str = field(
+        default_factory=lambda: os.environ.get("EMBEDDING_PROVIDER", "ollama")
+    )
+
     # Ollama
     ollama_host: str = field(
         default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434")
@@ -28,6 +33,13 @@ class Config:
     ollama_embed_model: str = field(
         default_factory=lambda: os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
     )
+
+    # OpenAI-compatible embedding provider
+    embed_api_key: str = field(default_factory=lambda: os.environ.get("EMBED_API_KEY", ""))
+    embed_base_url: str = field(
+        default_factory=lambda: os.environ.get("EMBED_BASE_URL", "https://api.openai.com/v1")
+    )
+    embed_model: str = field(default_factory=lambda: os.environ.get("EMBED_MODEL", ""))
 
     # SQLite memory DB
     memory_db_path: Path = field(
