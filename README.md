@@ -13,6 +13,8 @@ fleet-mem is a local [MCP](https://modelcontextprotocol.io) server that gives AI
 - **Token-efficient code search.** Understands the structure of your code via Abstract Syntax Trees (AST). Returns the specific function, not the entire file.
 - **Fleet-aware.** Agents share discoveries, declare what files they are working on, and get notified when another agent's merge affects their context.
 
+---
+
 ## Getting started
 
 ### Prerequisites
@@ -20,6 +22,8 @@ fleet-mem is a local [MCP](https://modelcontextprotocol.io) server that gives AI
 - Python 3.11+
 - [Ollama](https://ollama.ai) running locally (brew, systemd, or Docker)
 - `ollama pull nomic-embed-text`
+
+<br>
 
 ### Install
 
@@ -29,11 +33,15 @@ cd fleet-mem
 ./scripts/setup.sh
 ```
 
+<br>
+
 ### Index your codebases
 
 ```bash
 ./scripts/index-repos.sh --root ~/projects
 ```
+
+<br>
 
 ### MCP client configuration
 
@@ -57,6 +65,8 @@ Add to your MCP client settings (the `setup.sh` script does this automatically f
 
 fleet-mem works with any MCP-compatible client. Your client starts it automatically on the first tool call.
 
+<br>
+
 ### Example agent queries
 
 Once indexed, agents can ask things they could not do with grep:
@@ -65,6 +75,8 @@ Once indexed, agents can ask things they could not do with grep:
 - *"Which agent is currently working on the database schema?"*
 - *"What did other agents learn about the payment gateway this session?"*
 - *"If I merge this branch, which agents will have stale context?"*
+
+---
 
 ## How it works
 
@@ -81,6 +93,8 @@ fleet-mem installs once as a global MCP server. It can index any number of proje
   memory.db       agent memories (shared)
   fleet.db        locks, subscriptions (shared)
 ```
+
+<br>
 
 ### Architecture
 
@@ -101,6 +115,8 @@ graph LR
     FC --> G[Git]
 ```
 
+<br>
+
 ### Components
 
 | Component | What it is | Why we chose it |
@@ -110,6 +126,8 @@ graph LR
 | **SQLite + FTS5** | Relational database with full-text search | Agent memories need both keyword search and structured queries. FTS5 + ChromaDB vectors give hybrid ranking via reciprocal rank fusion |
 | **[tree-sitter](https://tree-sitter.github.io/tree-sitter/)** | Incremental parsing library | Splits code into semantic chunks (functions, classes, methods) instead of arbitrary character windows. Search results are meaningful code units, not fragments |
 | **[xxHash](https://xxhash.com) (xxh3_64)** | File change detection + chunk IDs | Detects which files changed between sync cycles. Not a security function, purely for diffing. ~10x faster than SHA-1 |
+
+<br>
 
 ### Language support
 
@@ -121,7 +139,11 @@ graph LR
 
 AST-aware splitting means search results are complete, meaningful code units. Text-only fallback still works but may return partial functions. Adding a new language requires defining its tree-sitter node types in `src/splitter/ast_splitter.py` (contributions welcome).
 
+<br>
+
 ### Process flows
+
+<br>
 
 #### Indexing a codebase
 
@@ -146,6 +168,8 @@ sequenceDiagram
     FM-->>S: {status: indexed}
 ```
 
+<br>
+
 #### Semantic code search
 
 > **Problem:** Grep requires exact strings. Agents don't know file names or function signatures in unfamiliar code.
@@ -165,6 +189,8 @@ sequenceDiagram
     C-->>FM: Top-K chunks + distances
     FM-->>A: [{file, lines, snippet, score}]
 ```
+
+<br>
 
 #### Storing and searching memory
 
@@ -192,6 +218,8 @@ sequenceDiagram
     FM->>C: Vector search
     FM-->>A: Merged ranked results
 ```
+
+<br>
 
 #### Multi-agent coordination
 
@@ -228,6 +256,8 @@ sequenceDiagram
     FM-->>B: ["uses JWT"]
 ```
 
+<br>
+
 #### Merge impact preview
 
 > **Problem:** Agent A merges a PR. Agents B and C are still working on branches that now have stale context. No one tells them.
@@ -253,6 +283,8 @@ sequenceDiagram
     FM->>M: Mark anchors stale
 ```
 
+<br>
+
 ### Embedding providers
 
 The default is Ollama (local, free). fleet-mem also ships an OpenAI-compatible adapter that works with any provider offering an OpenAI-style embeddings API.
@@ -268,6 +300,8 @@ The default is Ollama (local, free). fleet-mem also ships an OpenAI-compatible a
 
 See `.env.example` for full configuration. For providers without an OpenAI-compatible API (Cohere, AWS Bedrock, Hugging Face), see [docs/custom-embedding-providers.md](docs/custom-embedding-providers.md). The adapter interface is four methods and typically under 30 lines.
 
+---
+
 ## Features
 
 ### Code understanding
@@ -278,12 +312,16 @@ See `.env.example` for full configuration. For providers without an OpenAI-compa
 - **Incremental sync**: xxHash Merkle tree detects file changes, re-indexes only deltas
 - **Branch-aware indexing**: overlay collections for feature branches keep changes isolated from the main index
 
+<br>
+
 ### Fleet coordination
 
 - **File lock registry**: agents declare which files they are working on, others check before starting
 - **Cross-agent memory**: agents share discoveries via subscriptions and notifications
 - **Merge impact preview**: before merging, see which in-flight agents would be affected
 - **Post-merge notification**: after merging, automatically notify affected agents and mark stale context
+
+---
 
 ## Configuration
 
@@ -300,6 +338,8 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `SYNC_INTERVAL` | `300` | Background code index sync (seconds) |
 | `MCP_SETTINGS_FILE` | `~/.claude/settings.json` | MCP client settings path |
 
+<br>
+
 ### Background sync timing
 
 | What | Timing | How |
@@ -311,6 +351,8 @@ All settings via environment variables or a `.env` file in the project root. Cop
 
 For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future release will add file-watching for near-instant sync.
 
+<br>
+
 ### Scripts
 
 | Script | Purpose |
@@ -319,6 +361,8 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 | `scripts/index-repos.sh` | Find git repos under a root directory and index each one |
 | `scripts/import-flat-files.py` | Import existing memory files (markdown with YAML frontmatter) |
 | `scripts/embed-existing-nodes.py` | Embed existing memory DB nodes into ChromaDB for semantic search |
+
+---
 
 ## MCP tools reference
 
@@ -333,6 +377,8 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 | `get_change_impact` | `file_paths?, symbol_names?` | Find code affected by changes to given files/symbols |
 | `get_dependents` | `symbol_name, depth?` | Trace what calls/imports a symbol (BFS) |
 
+<br>
+
 ### Agent memory (4 tools)
 
 | Tool | Parameters | Description |
@@ -341,6 +387,8 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 | `memory_search` | `query, top_k?, node_type?` | Hybrid keyword + semantic memory search |
 | `memory_promote` | `memory_id, target_scope?` | Promote a project memory to global scope |
 | `stale_check` | `project_path?` | Find memories whose anchored files have changed |
+
+<br>
 
 ### Fleet coordination (8 tools)
 
@@ -355,6 +403,8 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 | `memory_subscribe` | `agent_id, file_patterns` | Subscribe to memories about specific files |
 | `memory_notifications` | `agent_id` | Check for new relevant memories from other agents |
 
+<br>
+
 ### Status (4 tools)
 
 | Tool | Parameters | Description |
@@ -364,16 +414,19 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 | `get_branches` | `path` | List indexed branches with chunk counts |
 | `cleanup_branch` | `path, branch` | Drop a branch overlay after merge |
 
+---
+
 ## What's next
 
-- [ ] Recursive AST splitting for nested methods and classes
-- [ ] Local embedding cache for near-instant re-indexing
-- [ ] Ghost chunk cleanup (stale vector reconciliation)
 - [ ] Hierarchical Merkle sync for large monorepos
+- [ ] Asyncio transition for concurrent agent workloads
 - [ ] Docker Compose deployment (fleet-mem + Ollama in one container)
 - [ ] File-watching for near-instant sync (replace polling)
+- [ ] Performance benchmarks
 
 See [roadmap.md](roadmap.md) for the full plan.
+
+---
 
 ## Acknowledgments
 
