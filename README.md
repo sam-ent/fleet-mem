@@ -32,8 +32,10 @@ fleet-mem is a local [MCP](https://modelcontextprotocol.io) server that gives AI
 ```bash
 git clone https://github.com/sam-ent/fleet-mem.git
 cd fleet-mem
-./scripts/setup.sh
+./scripts/setup.sh  # Creates venv, installs deps, registers MCP server
 ```
+
+No manual venv activation needed. The MCP client runs fleet-mem using its own venv automatically.
 
 <br>
 
@@ -226,11 +228,41 @@ sequenceDiagram
 
 <br>
 
-#### Multi-agent coordination
+#### File locking
 
-> **<ins>Problem</ins>:** Concurrent agents modify the same files, causing merge conflicts and duplicated effort. No one knows what anyone else is doing.
+> **<ins>Problem</ins>:** Concurrent agents modify the same files, causing merge conflicts and wasted work.
 >
-> **<ins>Solution</ins>:** Agents declare their work area, get blocked on conflicts before they start, and automatically receive discoveries from other agents working nearby.
+> **<ins>Solution</ins>:** Agents declare their work area before starting. Conflicts are caught immediately, not after hours of wasted effort.
+
+```mermaid
+sequenceDiagram
+    participant A as Agent A
+    participant B as Agent B
+    participant FM as fleet-mem
+    participant F as fleet.db
+
+    A->>FM: lock_acquire(["src/auth/*"])
+    FM->>F: INSERT lock
+    FM-->>A: acquired
+
+    B->>FM: lock_acquire(["src/auth/login.py"])
+    FM->>F: Check overlap (fnmatch)
+    FM-->>B: conflict (holder: A)
+
+    A->>FM: lock_release()
+    FM->>F: DELETE lock
+
+    B->>FM: lock_acquire(["src/auth/login.py"])
+    FM-->>B: acquired
+```
+
+<br>
+
+#### Cross-agent knowledge sharing
+
+> **<ins>Problem</ins>:** Agent A discovers something important about the code. Agent B, working in the same area, has no way to know.
+>
+> **<ins>Solution</ins>:** Agents subscribe to file patterns they care about. When another agent stores a discovery matching that pattern, subscribers are notified automatically.
 
 ```mermaid
 sequenceDiagram
@@ -241,25 +273,17 @@ sequenceDiagram
     participant M as memory.db
     participant C as ChromaDB
 
-    A->>FM: lock_acquire(["src/auth/*"])
-    FM->>F: INSERT lock
-    FM-->>A: acquired
-
-    B->>FM: lock_acquire(["src/auth/login.py"])
-    FM->>F: Check overlap
-    FM-->>B: conflict (holder: A)
-
     B->>FM: memory_subscribe(["src/auth/*"])
     FM->>F: INSERT subscription
 
-    A->>FM: memory_store("uses JWT")
+    A->>FM: memory_store("auth uses JWT")
     FM->>M: INSERT node
     FM->>C: Embed + store
-    FM->>F: Create notification for B
+    FM->>F: Match subscriptions, notify B
 
     B->>FM: memory_notifications()
     FM->>F: SELECT unread
-    FM-->>B: ["uses JWT"]
+    FM-->>B: ["auth uses JWT"]
 ```
 
 <br>
