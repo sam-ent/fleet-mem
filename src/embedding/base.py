@@ -21,3 +21,11 @@ class Embedding(ABC):
     @abstractmethod
     def get_provider(self) -> str:
         """Return the provider name (e.g. 'ollama/nomic-embed-text')."""
+
+    async def aembed(self, text: str) -> list[float]:
+        """Async embed. Default falls back to sync."""
+        return self.embed(text)
+
+    async def aembed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Async batch embed. Default falls back to sync."""
+        return self.embed_batch(texts)

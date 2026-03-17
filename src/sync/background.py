@@ -1,7 +1,7 @@
 """Background sync: periodic file change detection and re-indexing."""
 
+import asyncio
 import logging
-import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -27,43 +27,40 @@ class BackgroundSync:
         self._project_name = project_name
         self._reindex_callback = reindex_callback
         self._synchronizer = FileSynchronizer(config)
-        self._timer: threading.Timer | None = None
+        self._task: asyncio.Task | None = None
         self._running = False
 
-    def start(self) -> None:
+    async def start(self) -> None:
         """Start the background sync loop."""
         if self._running:
             return
         self._running = True
-        self._schedule()
+        self._task = asyncio.create_task(self._loop())
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop the background sync loop."""
         self._running = False
-        if self._timer is not None:
-            self._timer.cancel()
-            self._timer = None
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
 
-    def _schedule(self) -> None:
-        if not self._running:
-            return
-        self._timer = threading.Timer(self._config.sync_interval_seconds, self._tick)
-        self._timer.daemon = True
-        self._timer.start()
+    async def _loop(self) -> None:
+        """Run sync cycles at the configured interval."""
+        while self._running:
+            await asyncio.sleep(self._config.sync_interval_seconds)
+            try:
+                await self._sync_once()
+            except Exception:
+                logger.exception("Background sync error")
 
-    def _tick(self) -> None:
-        """Run one sync cycle, then reschedule."""
-        try:
-            self._sync_once()
-        except Exception:
-            logger.exception("Background sync error")
-        finally:
-            self._schedule()
-
-    def _sync_once(self) -> None:
+    async def _sync_once(self) -> None:
         """Compare current state to saved snapshot, invoke callback for diffs."""
-        old_snapshot = self._synchronizer.load_snapshot(self._project_name)
-        new_snapshot = self._synchronizer.scan(self._project_path)
+        old_snapshot = await asyncio.to_thread(self._synchronizer.load_snapshot, self._project_name)
+        new_snapshot = await asyncio.to_thread(self._synchronizer.scan, self._project_path)
 
         if old_snapshot is None:
             old_tree = {"hash": "", "files": {}, "dirs": {}}
@@ -84,10 +81,10 @@ class BackgroundSync:
                 len(changed),
                 len(removed),
             )
-            self._reindex_callback(changed, removed)
+            await asyncio.to_thread(self._reindex_callback, changed, removed)
 
-        self._synchronizer.save_snapshot(self._project_name, new_snapshot)
+        await asyncio.to_thread(self._synchronizer.save_snapshot, self._project_name, new_snapshot)
 
-    def sync_now(self) -> None:
+    async def sync_now(self) -> None:
         """Run a sync cycle immediately (useful for testing)."""
-        self._sync_once()
+        await self._sync_once()

@@ -57,3 +57,29 @@ class OpenAICompatibleEmbedding(Embedding):
 
     def get_provider(self) -> str:
         return f"openai-compat/{self._model}"
+
+    async def aembed(self, text: str) -> list[float]:
+        """Async embed a single text string."""
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+        response = await client.embeddings.create(model=self._model, input=[text])
+        vector = response.data[0].embedding
+        if self._dimension is None:
+            self._dimension = len(vector)
+        return vector
+
+    async def aembed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Async embed multiple texts, chunked."""
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+        results: list[list[float]] = []
+        for i in range(0, len(texts), _BATCH_CHUNK_SIZE):
+            chunk = texts[i : i + _BATCH_CHUNK_SIZE]
+            response = await client.embeddings.create(model=self._model, input=chunk)
+            embeddings = [d.embedding for d in response.data]
+            results.extend(embeddings)
+            if self._dimension is None and embeddings:
+                self._dimension = len(embeddings[0])
+        return results

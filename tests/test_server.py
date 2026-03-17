@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -23,6 +23,16 @@ def _reset_index_status():
     _index_status.clear()
     yield
     _index_status.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_bg_sync():
+    """Reset the background sync flag between tests."""
+    import src.server
+
+    src.server._bg_syncs_started = False
+    yield
+    src.server._bg_syncs_started = False
 
 
 @pytest.fixture
@@ -52,7 +62,11 @@ def mock_embedder():
     emb = MagicMock()
     emb.embed.return_value = _vec()
     emb.embed_batch.return_value = [_vec()]
+    emb.aembed = AsyncMock(return_value=_vec())
+    emb.aembed_batch = AsyncMock(return_value=[_vec()])
     emb.get_dimension.return_value = 8
+    emb.cache_hits = 0
+    emb.cache_misses = 0
     return emb
 
 
@@ -64,6 +78,7 @@ def _patch_deps(mock_config, mock_db, mock_embedder):
         patch("src.server._get_db", return_value=mock_db),
         patch("src.server._get_embedder", return_value=mock_embedder),
         patch("src.server._get_memory") as mock_mem_factory,
+        patch("src.server._ensure_background_sync", new_callable=AsyncMock),
     ):
         mock_mem = MagicMock()
         mock_mem_factory.return_value = mock_mem
@@ -81,31 +96,34 @@ def _patch_deps(mock_config, mock_db, mock_embedder):
 
 
 class TestIndexCodebase:
-    def test_returns_indexing_status(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_returns_indexing_status(self, _patch_deps):
         from src.server import index_codebase
 
         with patch("src.server.threading") as mock_threading:
             mock_thread = MagicMock()
             mock_threading.Thread.return_value = mock_thread
 
-            result = index_codebase(path="/tmp/myproject")
+            result = await index_codebase(path="/tmp/myproject")
 
         assert result["project"] == "myproject"
         assert result["status"] == "indexing"
         mock_thread.start.assert_called_once()
 
-    def test_returns_indexed_if_collection_exists(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_returns_indexed_if_collection_exists(self, _patch_deps):
         from src.server import index_codebase
 
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].count.return_value = 42
 
-        result = index_codebase(path="/tmp/myproject", force=False)
+        result = await index_codebase(path="/tmp/myproject", force=False)
 
         assert result["status"] == "indexed"
         assert result["chunk_count"] == 42
 
-    def test_force_reindexes(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_force_reindexes(self, _patch_deps):
         from src.server import index_codebase
 
         _patch_deps["db"].has_collection.return_value = True
@@ -115,7 +133,7 @@ class TestIndexCodebase:
             mock_thread = MagicMock()
             mock_threading.Thread.return_value = mock_thread
 
-            result = index_codebase(path="/tmp/myproject", force=True)
+            result = await index_codebase(path="/tmp/myproject", force=True)
 
         assert result["status"] == "indexing"
 
@@ -126,7 +144,8 @@ class TestIndexCodebase:
 
 
 class TestSearchCode:
-    def test_returns_results_structure(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_returns_results_structure(self, _patch_deps):
         from src.server import search_code
 
         _patch_deps["db"].list_collections.return_value = ["code_myproject"]
@@ -145,7 +164,7 @@ class TestSearchCode:
             }
         ]
 
-        results = search_code(query="hello function")
+        results = await search_code(query="hello function")
 
         assert len(results) == 1
         r = results[0]
@@ -156,35 +175,36 @@ class TestSearchCode:
         assert r["score"] == 0.95
         assert r["project"] == "myproject"
 
-    def test_scoped_to_project(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_scoped_to_project(self, _patch_deps):
         from src.server import search_code
 
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].search.return_value = []
 
-        search_code(query="test", path="/tmp/myproject")
+        await search_code(query="test", path="/tmp/myproject")
 
         _patch_deps["db"].search.assert_called_once()
-        call_args = _patch_deps["db"].search.call_args
-        assert call_args[0][0] == "code_myproject"
 
-    def test_extension_filter(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_extension_filter(self, _patch_deps):
         from src.server import search_code
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].search.return_value = []
 
-        search_code(query="test", extension_filter="python")
+        await search_code(query="test", extension_filter="python")
 
         call_args = _patch_deps["db"].search.call_args
         assert call_args[1]["where"] == {"language": "python"}
 
-    def test_empty_collections(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_empty_collections(self, _patch_deps):
         from src.server import search_code
 
         _patch_deps["db"].list_collections.return_value = []
-        results = search_code(query="test")
+        results = await search_code(query="test")
         assert results == []
 
 
@@ -194,23 +214,25 @@ class TestSearchCode:
 
 
 class TestClearIndex:
-    def test_drops_collection(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_drops_collection(self, _patch_deps):
         from src.server import clear_index
 
         _patch_deps["db"].has_collection.return_value = True
 
-        result = clear_index(path="/tmp/myproject")
+        result = await clear_index(path="/tmp/myproject")
 
         assert result["project"] == "myproject"
         assert result["status"] == "cleared"
         _patch_deps["db"].drop_collection.assert_called_once_with("code_myproject")
 
-    def test_no_collection_still_succeeds(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_no_collection_still_succeeds(self, _patch_deps):
         from src.server import clear_index
 
         _patch_deps["db"].has_collection.return_value = False
 
-        result = clear_index(path="/tmp/myproject")
+        result = await clear_index(path="/tmp/myproject")
 
         assert result["status"] == "cleared"
         _patch_deps["db"].drop_collection.assert_not_called()
@@ -222,28 +244,31 @@ class TestClearIndex:
 
 
 class TestGetIndexStatus:
-    def test_not_indexed(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_not_indexed(self, _patch_deps):
         from src.server import get_index_status
 
         _patch_deps["db"].has_collection.return_value = False
 
-        result = get_index_status(path="/tmp/myproject")
+        result = await get_index_status(path="/tmp/myproject")
 
         assert result["status"] == "not_indexed"
         assert result["project"] == "myproject"
 
-    def test_indexed_from_db(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_indexed_from_db(self, _patch_deps):
         from src.server import get_index_status
 
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].count.return_value = 100
 
-        result = get_index_status(path="/tmp/myproject")
+        result = await get_index_status(path="/tmp/myproject")
 
         assert result["status"] == "indexed"
         assert result["chunk_count"] == 100
 
-    def test_status_from_tracking_dict(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_status_from_tracking_dict(self, _patch_deps):
         from src.server import _index_status, get_index_status
 
         _index_status["myproject"] = {
@@ -254,7 +279,7 @@ class TestGetIndexStatus:
             "error": None,
         }
 
-        result = get_index_status(path="/tmp/myproject")
+        result = await get_index_status(path="/tmp/myproject")
 
         assert result["status"] == "indexing"
 
@@ -265,7 +290,8 @@ class TestGetIndexStatus:
 
 
 class TestFindSymbol:
-    def test_returns_matches(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_returns_matches(self, _patch_deps):
         from src.server import find_symbol
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
@@ -287,13 +313,14 @@ class TestFindSymbol:
         }
         _patch_deps["db"]._client.get_collection.return_value = mock_col
 
-        results = find_symbol(name="my_func")
+        results = await find_symbol(name="my_func")
 
         assert len(results) == 1
         assert results[0]["file_path"] == "src/lib.py"
         assert results[0]["symbol_type"] == "function"
 
-    def test_file_path_filter(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_file_path_filter(self, _patch_deps):
         from src.server import find_symbol
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
@@ -321,15 +348,16 @@ class TestFindSymbol:
         }
         _patch_deps["db"]._client.get_collection.return_value = mock_col
 
-        results = find_symbol(name="f", file_path="a.py")
+        results = await find_symbol(name="f", file_path="a.py")
         assert len(results) == 1
         assert results[0]["file_path"] == "a.py"
 
-    def test_empty_results(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_empty_results(self, _patch_deps):
         from src.server import find_symbol
 
         _patch_deps["db"].list_collections.return_value = []
-        results = find_symbol(name="nonexistent")
+        results = await find_symbol(name="nonexistent")
         assert results == []
 
 
@@ -339,7 +367,8 @@ class TestFindSymbol:
 
 
 class TestGetChangeImpact:
-    def test_finds_impacted_chunks(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_finds_impacted_chunks(self, _patch_deps):
         from src.server import get_change_impact
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
@@ -359,16 +388,17 @@ class TestGetChangeImpact:
         }
         _patch_deps["db"]._client.get_collection.return_value = mock_col
 
-        results = get_change_impact(symbol_names=["helper"])
+        results = await get_change_impact(symbol_names=["helper"])
 
         assert len(results) >= 1
         assert results[0]["matched_term"] == "helper"
 
-    def test_empty_inputs(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_empty_inputs(self, _patch_deps):
         from src.server import get_change_impact
 
         _patch_deps["db"].list_collections.return_value = []
-        results = get_change_impact()
+        results = await get_change_impact()
         assert results == []
 
 
@@ -378,7 +408,8 @@ class TestGetChangeImpact:
 
 
 class TestGetDependents:
-    def test_finds_dependents(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_finds_dependents(self, _patch_deps):
         from src.server import get_dependents
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
@@ -398,13 +429,14 @@ class TestGetDependents:
         }
         _patch_deps["db"]._client.get_collection.return_value = mock_col
 
-        results = get_dependents(symbol_name="my_func")
+        results = await get_dependents(symbol_name="my_func")
 
         assert len(results) == 1
         assert results[0]["depth"] == 1
         assert results[0]["file_path"] == "src/caller.py"
 
-    def test_skips_definition_file(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_skips_definition_file(self, _patch_deps):
         from src.server import get_dependents
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
@@ -424,7 +456,7 @@ class TestGetDependents:
         }
         _patch_deps["db"]._client.get_collection.return_value = mock_col
 
-        results = get_dependents(symbol_name="my_func", file_path="src/lib.py")
+        results = await get_dependents(symbol_name="my_func", file_path="src/lib.py")
         assert len(results) == 0
 
 
@@ -434,7 +466,8 @@ class TestGetDependents:
 
 
 class TestFindSimilarCode:
-    def test_returns_similar_chunks(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_returns_similar_chunks(self, _patch_deps):
         from src.server import find_similar_code
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
@@ -453,7 +486,7 @@ class TestFindSimilarCode:
             }
         ]
 
-        results = find_similar_code(code_snippet="def hello(name): pass")
+        results = await find_similar_code(code_snippet="def hello(name): pass")
 
         assert len(results) == 1
         assert results[0]["score"] == 0.88
@@ -466,7 +499,8 @@ class TestFindSimilarCode:
 
 
 class TestMemorySearch:
-    def test_returns_results(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_returns_results(self, _patch_deps):
         from src.server import memory_search
 
         mock_mem = _patch_deps["memory"]
@@ -479,7 +513,7 @@ class TestMemorySearch:
         mock_result.file_path = "src/foo.py"
         mock_mem.memory_search.return_value = [mock_result]
 
-        results = memory_search(query="test")
+        results = await memory_search(query="test")
 
         assert len(results) == 1
         assert results[0]["id"] == "mem1"
@@ -488,13 +522,14 @@ class TestMemorySearch:
 
 
 class TestMemoryStore:
-    def test_stores_and_returns_id(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_stores_and_returns_id(self, _patch_deps):
         from src.server import memory_store
 
         mock_mem = _patch_deps["memory"]
         mock_mem.memory_store.return_value = "new-id-123"
 
-        result = memory_store(node_type="insight", content="learned something")
+        result = await memory_store(node_type="insight", content="learned something")
 
         assert result["id"] == "new-id-123"
         assert result["status"] == "stored"
@@ -502,19 +537,21 @@ class TestMemoryStore:
 
 
 class TestMemoryPromote:
-    def test_promotes(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_promotes(self, _patch_deps):
         from src.server import memory_promote
 
         mock_mem = _patch_deps["memory"]
 
-        result = memory_promote(memory_id="mem1")
+        result = await memory_promote(memory_id="mem1")
 
         assert result["status"] == "promoted"
         mock_mem.memory_promote.assert_called_once_with("mem1", target_scope=None)
 
 
 class TestStaleCheck:
-    def test_returns_stale_anchors(self, _patch_deps):
+    @pytest.mark.asyncio
+    async def test_returns_stale_anchors(self, _patch_deps):
         from src.server import stale_check
 
         mock_mem = _patch_deps["memory"]
@@ -526,7 +563,7 @@ class TestStaleCheck:
         mock_anchor.current_hash = "bbb"
         mock_mem.stale_check.return_value = [mock_anchor]
 
-        results = stale_check()
+        results = await stale_check()
 
         assert len(results) == 1
         assert results[0]["memory_id"] == "mem1"

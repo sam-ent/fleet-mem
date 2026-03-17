@@ -117,12 +117,13 @@ class TestFileSynchronizer:
 
 
 class TestBackgroundSync:
-    def test_sync_detects_new_file(self, tmp_config, tmp_project):
+    @pytest.mark.asyncio
+    async def test_sync_detects_new_file(self, tmp_config, tmp_project):
         callback = MagicMock()
         bg = BackgroundSync(tmp_config, tmp_project, "proj", callback)
 
         # First sync: everything is "added" (no prior snapshot)
-        bg.sync_now()
+        await bg.sync_now()
         changed, removed = callback.call_args[0]
         assert len(changed) == 3
         assert len(removed) == 0
@@ -130,56 +131,61 @@ class TestBackgroundSync:
         # Add a file and sync again
         callback.reset_mock()
         (tmp_project / "new.py").write_text("new")
-        bg.sync_now()
+        await bg.sync_now()
         changed, removed = callback.call_args[0]
         assert "new.py" in changed
 
-    def test_sync_detects_removed_file(self, tmp_config, tmp_project):
+    @pytest.mark.asyncio
+    async def test_sync_detects_removed_file(self, tmp_config, tmp_project):
         callback = MagicMock()
         bg = BackgroundSync(tmp_config, tmp_project, "proj", callback)
 
-        bg.sync_now()  # baseline
+        await bg.sync_now()  # baseline
         callback.reset_mock()
 
         (tmp_project / "utils.py").unlink()
-        bg.sync_now()
+        await bg.sync_now()
         changed, removed = callback.call_args[0]
         assert "utils.py" in removed
 
-    def test_sync_detects_modified_file(self, tmp_config, tmp_project):
+    @pytest.mark.asyncio
+    async def test_sync_detects_modified_file(self, tmp_config, tmp_project):
         callback = MagicMock()
         bg = BackgroundSync(tmp_config, tmp_project, "proj", callback)
 
-        bg.sync_now()  # baseline
+        await bg.sync_now()  # baseline
         callback.reset_mock()
 
         (tmp_project / "main.py").write_text("print('modified')")
-        bg.sync_now()
+        await bg.sync_now()
         changed, removed = callback.call_args[0]
         assert "main.py" in changed
         assert len(removed) == 0
 
-    def test_no_changes_no_callback(self, tmp_config, tmp_project):
+    @pytest.mark.asyncio
+    async def test_no_changes_no_callback(self, tmp_config, tmp_project):
         callback = MagicMock()
         bg = BackgroundSync(tmp_config, tmp_project, "proj", callback)
 
-        bg.sync_now()  # baseline
+        await bg.sync_now()  # baseline
         callback.reset_mock()
 
-        bg.sync_now()  # no changes
+        await bg.sync_now()  # no changes
         callback.assert_not_called()
 
-    def test_start_stop(self, tmp_config, tmp_project):
+    @pytest.mark.asyncio
+    async def test_start_stop(self, tmp_config, tmp_project):
         callback = MagicMock()
         bg = BackgroundSync(tmp_config, tmp_project, "proj", callback)
-        bg.start()
+        await bg.start()
         assert bg._running is True
-        assert bg._timer is not None
-        bg.stop()
+        assert bg._task is not None
+        await bg.stop()
         assert bg._running is False
-        assert bg._timer is None
+        assert bg._task is None
 
-    def test_backward_compat_old_flat_snapshot(self, tmp_config, tmp_project):
+    @pytest.mark.asyncio
+    async def test_backward_compat_old_flat_snapshot(self, tmp_config, tmp_project):
         """Old flat snapshot should trigger full comparison without crash."""
         sync = FileSynchronizer(tmp_config)
         # Save a legacy flat snapshot
@@ -192,7 +198,7 @@ class TestBackgroundSync:
 
         callback = MagicMock()
         bg = BackgroundSync(tmp_config, tmp_project, "proj", callback)
-        bg.sync_now()
+        await bg.sync_now()
         # Should detect changes without crashing
         callback.assert_called_once()
         changed, removed = callback.call_args[0]

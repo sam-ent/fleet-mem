@@ -120,6 +120,47 @@ class CachedEmbedding(Embedding):
 
         return results  # type: ignore[return-value]
 
+    async def aembed(self, text: str) -> list[float]:
+        """Async embed with cache."""
+        h = self._hash(text)
+        provider = self._inner.get_provider()
+        cached = self._cache.get(h, provider, "")
+        if cached is not None:
+            self._hits += 1
+            return cached
+        self._misses += 1
+        vec = await self._inner.aembed(text)
+        self._cache.put(h, vec, provider, "")
+        return vec
+
+    async def aembed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Async batch embed with cache."""
+        provider = self._inner.get_provider()
+        hashes = [self._hash(t) for t in texts]
+
+        results: list[list[float] | None] = []
+        miss_indices: list[int] = []
+        miss_texts: list[str] = []
+
+        for i, (h, t) in enumerate(zip(hashes, texts)):
+            cached = self._cache.get(h, provider, "")
+            if cached is not None:
+                self._hits += 1
+                results.append(cached)
+            else:
+                self._misses += 1
+                results.append(None)
+                miss_indices.append(i)
+                miss_texts.append(t)
+
+        if miss_texts:
+            fresh = await self._inner.aembed_batch(miss_texts)
+            for idx, vec in zip(miss_indices, fresh):
+                results[idx] = vec
+                self._cache.put(hashes[idx], vec, provider, "")
+
+        return results  # type: ignore[return-value]
+
     def get_dimension(self) -> int:
         return self._inner.get_dimension()
 

@@ -5,6 +5,7 @@ Provides semantic code search and agent memory tools via MCP protocol.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import threading
@@ -91,7 +92,7 @@ def _get_memory(config=None):
 
 
 @mcp.tool(description="Index a codebase for semantic search. Runs in background.")
-def index_codebase(
+async def index_codebase(
     path: str,
     force: bool = False,
     extensions: list[str] | None = None,
@@ -286,7 +287,7 @@ def index_codebase(
 
 
 @mcp.tool(description="Semantic code search across indexed codebases.")
-def search_code(
+async def search_code(
     query: str,
     path: str | None = None,
     limit: int = 10,
@@ -299,6 +300,7 @@ def search_code(
     overlay first (higher priority) then falls back to the base collection,
     excluding files already found in the overlay.
     """
+    await _ensure_background_sync()
     tracer = get_tracer()
     with tracer.start_as_current_span("fleet.search") as span:
         span.set_attribute("fleet.query_hash", hash_content(query))
@@ -309,7 +311,7 @@ def search_code(
         db = _get_db(config)
         embedder = _get_embedder(config)
 
-        vector = embedder.embed(query)
+        vector = await embedder.aembed(query)
         where = None
         if extension_filter:
             where = {"language": extension_filter}
@@ -320,7 +322,9 @@ def search_code(
 
             project = _project_name_from_path(path)
             bi = BranchIndex(db, project)
-            hits = bi.search(query_vector=vector, branch=branch, limit=limit, where=where)
+            hits = await asyncio.to_thread(
+                bi.search, query_vector=vector, branch=branch, limit=limit, where=where
+            )
             results: list[dict[str, Any]] = []
             for hit in hits:
                 meta = hit.get("metadata", {})
@@ -344,13 +348,17 @@ def search_code(
             project = _project_name_from_path(path)
             collections = [f"code_{project}"]
         else:
-            collections = [c for c in db.list_collections() if c.startswith("code_")]
+            collections = await asyncio.to_thread(db.list_collections)
+            collections = [c for c in collections if c.startswith("code_")]
 
         results = []
         for col_name in collections:
-            if not db.has_collection(col_name):
+            has_col = await asyncio.to_thread(db.has_collection, col_name)
+            if not has_col:
                 continue
-            hits = db.search(col_name, vector=vector, limit=limit, where=where)
+            hits = await asyncio.to_thread(
+                db.search, col_name, vector=vector, limit=limit, where=where
+            )
             for hit in hits:
                 meta = hit.get("metadata", {})
                 results.append(
@@ -378,7 +386,7 @@ def search_code(
 
 
 @mcp.tool(description="Drop a project's ChromaDB collection and reset status.")
-def clear_index(path: str) -> dict[str, str]:
+async def clear_index(path: str) -> dict[str, str]:
     """Remove indexed data for a project."""
     project = _project_name_from_path(path)
     collection_name = f"code_{project}"
@@ -404,7 +412,7 @@ def clear_index(path: str) -> dict[str, str]:
 
 
 @mcp.tool(description="List indexed branches for a project with chunk counts.")
-def get_branches(path: str) -> list[dict[str, Any]]:
+async def get_branches(path: str) -> list[dict[str, Any]]:
     """Return branches that have overlay collections for the given project."""
     from .fleet.branch_index import BranchIndex
 
@@ -421,7 +429,7 @@ def get_branches(path: str) -> list[dict[str, Any]]:
 
 
 @mcp.tool(description="Drop a branch overlay after merge/delete. Optionally re-index base.")
-def cleanup_branch(
+async def cleanup_branch(
     path: str,
     branch: str,
     reindex_base: bool = False,
@@ -444,7 +452,7 @@ def cleanup_branch(
 
     if reindex_base:
         # Trigger a force re-index of the base collection
-        reindex_result = index_codebase(path=path, force=True)
+        reindex_result = await index_codebase(path=path, force=True)
         result["reindex_status"] = reindex_result.get("status")
 
     return result
@@ -456,7 +464,7 @@ def cleanup_branch(
 
 
 @mcp.tool(description="Clear the embedding vector cache. Forces re-embedding on next use.")
-def clear_embedding_cache() -> dict[str, str]:
+async def clear_embedding_cache() -> dict[str, str]:
     """Wipe all cached embedding vectors."""
     from .embedding.cache import EmbeddingCache
 
@@ -472,7 +480,7 @@ def clear_embedding_cache() -> dict[str, str]:
 
 
 @mcp.tool(description="Get indexing status for a project.")
-def get_index_status(path: str) -> dict[str, Any]:
+async def get_index_status(path: str) -> dict[str, Any]:
     """Return current index status for the given project path."""
     project = _project_name_from_path(path)
     collection_name = f"code_{project}"
@@ -516,7 +524,7 @@ def get_index_status(path: str) -> dict[str, Any]:
 
 
 @mcp.tool(description="Find symbol definitions in indexed code (functions, classes, etc).")
-def find_symbol(
+async def find_symbol(
     name: str,
     file_path: str | None = None,
     symbol_type: str | None = None,
@@ -568,7 +576,7 @@ def find_symbol(
 
 
 @mcp.tool(description="Find code affected by changes to given files or symbols.")
-def get_change_impact(
+async def get_change_impact(
     file_paths: list[str] | None = None,
     symbol_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -630,7 +638,7 @@ def get_change_impact(
 
 
 @mcp.tool(description="Find what calls/imports a given symbol (incoming edges).")
-def get_dependents(
+async def get_dependents(
     symbol_name: str,
     file_path: str | None = None,
     depth: int = 1,
@@ -696,7 +704,7 @@ def get_dependents(
 
 
 @mcp.tool(description="Find code chunks similar to a given snippet.")
-def find_similar_code(
+async def find_similar_code(
     code_snippet: str,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
@@ -706,7 +714,7 @@ def find_similar_code(
     db = _get_db(config)
     embedder = _get_embedder(config)
 
-    vector = embedder.embed(code_snippet)
+    vector = await embedder.aembed(code_snippet)
     collections = [c for c in db.list_collections() if c.startswith("code_")]
 
     results: list[dict[str, Any]] = []
@@ -737,7 +745,7 @@ def find_similar_code(
 
 
 @mcp.tool(description="Search agent memory (hybrid FTS + semantic).")
-def memory_search(
+async def memory_search(
     query: str,
     top_k: int = 10,
     node_type: str | None = None,
@@ -765,7 +773,7 @@ def memory_search(
 
 
 @mcp.tool(description="Store a new memory node.")
-def memory_store(
+async def memory_store(
     node_type: str,
     content: str,
     summary: str | None = None,
@@ -795,7 +803,7 @@ def memory_store(
 
 
 @mcp.tool(description="Promote a project memory to global scope.")
-def memory_promote(
+async def memory_promote(
     memory_id: str,
     target_scope: str | None = None,
 ) -> dict[str, str]:
@@ -806,7 +814,7 @@ def memory_promote(
 
 
 @mcp.tool(description="Remove ghost chunks whose source files no longer exist.")
-def reconcile(
+async def reconcile(
     path: str,
 ) -> dict[str, Any]:
     """Run full reconciliation on a project's collection.
@@ -841,7 +849,7 @@ def reconcile(
 
 
 @mcp.tool(description="Check for stale file anchors in memory.")
-def stale_check(
+async def stale_check(
     project_path: str | None = None,
 ) -> list[dict[str, str]]:
     """Find memory anchors whose files have changed."""
@@ -865,7 +873,7 @@ def stale_check(
 
 
 @mcp.tool(description="Get fleet-wide statistics: chunk counts, memory nodes, locks, cache size.")
-def fleet_stats() -> dict[str, Any]:
+async def fleet_stats() -> dict[str, Any]:
     """Collect and return current fleet metrics."""
     from .fleet.stats import get_fleet_stats as _get_stats
 
@@ -950,7 +958,7 @@ def _make_reindex_callback(config):
     return _reindex
 
 
-def _start_background_sync(config):
+async def _start_background_sync(config):
     """Start background sync for all known indexed projects."""
     from .sync.background import BackgroundSync
 
@@ -974,12 +982,29 @@ def _start_background_sync(config):
             project_name=project_name,
             reindex_callback=callback,
         )
-        bg.start()
+        await bg.start()
         syncs.append(bg)
         interval = config.sync_interval_seconds
         logger.info("Background sync started for %s (every %ds)", project_name, interval)
 
     return syncs
+
+
+_bg_syncs: list = []
+_bg_syncs_started = False
+
+
+async def _ensure_background_sync():
+    """Start background sync lazily on first tool call."""
+    global _bg_syncs, _bg_syncs_started
+    if _bg_syncs_started:
+        return
+    _bg_syncs_started = True
+    from .config import Config
+
+    config = Config()
+    _bg_syncs = await _start_background_sync(config)
+    logger.info("Background sync active for %d projects", len(_bg_syncs))
 
 
 def main():
@@ -992,10 +1017,6 @@ def main():
     logger.info("Ollama host: %s", config.ollama_host)
     logger.info("Embedding model: %s", config.ollama_embed_model)
     logger.info("Memory DB: %s", config.memory_db_path)
-
-    # Start background sync for indexed projects
-    _bg_syncs = _start_background_sync(config)
-    logger.info("Background sync active for %d projects", len(_bg_syncs))
 
     mcp.run(transport="stdio")
 

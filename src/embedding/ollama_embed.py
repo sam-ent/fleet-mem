@@ -60,3 +60,39 @@ class OllamaEmbedding(Embedding):
 
     def get_provider(self) -> str:
         return f"ollama/{self._model}"
+
+    async def aembed(self, text: str) -> list[float]:
+        """Async embed a single text string."""
+        async_client = ollama_lib.AsyncClient(host=self._host)
+        try:
+            response = await async_client.embed(model=self._model, input=[text])
+        except Exception as exc:
+            raise ConnectionError(
+                f"Cannot reach Ollama at {self._host}. "
+                f"Ensure Ollama is running with model '{self._model}' pulled."
+            ) from exc
+
+        vector = response["embeddings"][0]
+        if self._dimension is None:
+            self._dimension = len(vector)
+        return vector
+
+    async def aembed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Async embed multiple texts, chunked into groups of 64."""
+        async_client = ollama_lib.AsyncClient(host=self._host)
+        results: list[list[float]] = []
+        for i in range(0, len(texts), _BATCH_CHUNK_SIZE):
+            chunk = texts[i : i + _BATCH_CHUNK_SIZE]
+            try:
+                response = await async_client.embed(model=self._model, input=chunk)
+            except Exception as exc:
+                raise ConnectionError(
+                    f"Cannot reach Ollama at {self._host}. "
+                    f"Ensure Ollama is running with model '{self._model}' pulled."
+                ) from exc
+
+            embeddings = response["embeddings"]
+            results.extend(embeddings)
+            if self._dimension is None and embeddings:
+                self._dimension = len(embeddings[0])
+        return results
