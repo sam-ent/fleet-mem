@@ -409,7 +409,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | **Lock acquire/release** | Immediate | Direct SQLite write |
 | **Notifications** | Immediate | Created on `memory_store` if subscriptions match |
 
-For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future release will add file-watching for near-instant sync.
+For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. File-watching is also available for near-instant sync — set `WATCH_ENABLED=true` to detect changes immediately without polling.
 
 <br>
 
@@ -530,10 +530,12 @@ See [roadmap.md](roadmap.md) for the full plan.
 
 ---
 
-## Acknowledgments
-
-Architecture inspired by [claude-context](https://github.com/zilliztech/claude-context) by Zilliz (MIT License). Design patterns informed by their TypeScript reference (vector database abstraction, embedding adapter, Merkle DAG, AST splitter). All code is an original Python implementation with significant additions (agent memory, fleet coordination, hybrid search, staleness detection).
-
 ## License
 
 MIT
+
+<details>
+<summary>Acknowledgments</summary>
+
+Architecture inspired by [claude-context](https://github.com/zilliztech/claude-context) by Zilliz (MIT License). Design patterns informed by their TypeScript reference (vector database abstraction, embedding adapter, Merkle DAG, AST splitter). All code is an original Python implementation with significant additions (agent memory, fleet coordination, hybrid search, staleness detection).
+</details>
