@@ -69,6 +69,13 @@ class Config:
         )
     )
 
+    # File watching
+    file_watching: bool = field(
+        default_factory=lambda: (
+            os.environ.get("FILE_WATCHING", "true").lower() in ("true", "1", "yes")
+        )
+    )
+
     # Merkle sync
     merkle_path: Path = field(default=None)
     sync_interval_seconds: int = field(

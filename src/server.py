@@ -959,7 +959,7 @@ def _make_reindex_callback(config):
 
 
 async def _start_background_sync(config):
-    """Start background sync for all known indexed projects."""
+    """Start background sync and optional file watching for indexed projects."""
     from .sync.background import BackgroundSync
 
     db = _get_db(config)
@@ -967,6 +967,16 @@ async def _start_background_sync(config):
     syncs: list[BackgroundSync] = []
 
     code_root = Path.home() / "CODE"
+
+    # If file watching is enabled, create a watcher and increase poll interval
+    watcher = None
+    if config.file_watching:
+        from .sync.watcher import FileWatcher
+
+        watcher = FileWatcher()
+        logger.info("File watching: enabled")
+    else:
+        logger.info("File watching: disabled (polling every %ds)", config.sync_interval_seconds)
 
     for col_name in collections:
         project_name = col_name.removeprefix("code_")
@@ -976,6 +986,11 @@ async def _start_background_sync(config):
             continue
 
         callback = _make_reindex_callback(config)
+
+        # Register file watcher for near-instant sync
+        if watcher is not None:
+            watcher.watch(project_name, project_path, callback)
+
         bg = BackgroundSync(
             config=config,
             project_path=project_path,
@@ -987,23 +1002,24 @@ async def _start_background_sync(config):
         interval = config.sync_interval_seconds
         logger.info("Background sync started for %s (every %ds)", project_name, interval)
 
-    return syncs
+    return syncs, watcher
 
 
 _bg_syncs: list = []
+_file_watcher = None
 _bg_syncs_started = False
 
 
 async def _ensure_background_sync():
     """Start background sync lazily on first tool call."""
-    global _bg_syncs, _bg_syncs_started
+    global _bg_syncs, _file_watcher, _bg_syncs_started
     if _bg_syncs_started:
         return
     _bg_syncs_started = True
     from .config import Config
 
     config = Config()
-    _bg_syncs = await _start_background_sync(config)
+    _bg_syncs, _file_watcher = await _start_background_sync(config)
     logger.info("Background sync active for %d projects", len(_bg_syncs))
 
 
