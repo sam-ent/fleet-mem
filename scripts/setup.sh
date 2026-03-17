@@ -93,7 +93,7 @@ fi
 
 # --- 7. Register MCP server ---
 echo "Registering MCP server in ${MCP_SETTINGS_FILE}..."
-mkdir -p "$(dirname "$SETTINGS_FILE")"
+mkdir -p "$(dirname "$MCP_SETTINGS_FILE")"
 
 MCP_ENTRY=$(cat <<JSONEOF
 {
@@ -107,8 +107,8 @@ MCP_ENTRY=$(cat <<JSONEOF
 JSONEOF
 )
 
-if [ -f "$SETTINGS_FILE" ]; then
-    cp "$SETTINGS_FILE" "${MCP_SETTINGS_FILE}.bak"
+if [ -f "$MCP_SETTINGS_FILE" ]; then
+    cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.bak"
     echo "Backed up existing settings to ${MCP_SETTINGS_FILE}.bak"
     # Read existing, merge mcpServers.fleet-mem
     echo "$MCP_ENTRY" | "${VENV_DIR}/bin/python" -c "
