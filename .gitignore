@@ -1,5 +1,13 @@
 *.egg-info/
+*.egg
 .venv/
 __pycache__/
 .pytest_cache/
+.ruff_cache/
 .env
+dist/
+build/
+.DS_Store
+*.swp
+*.swo
+*~
