@@ -37,19 +37,33 @@ def tmp_project(tmp_path):
 
 
 class TestFileSynchronizer:
-    def test_scan_returns_snapshot_format(self, tmp_config, tmp_project):
+    def test_scan_returns_hierarchical_snapshot(self, tmp_config, tmp_project):
         sync = FileSynchronizer(tmp_config)
         snap = sync.scan(tmp_project)
-        assert "files" in snap
+        assert "tree" in snap
         assert "root_hash" in snap
         assert "timestamp" in snap
-        assert isinstance(snap["files"], dict)
-        assert len(snap["files"]) == 3
+        tree = snap["tree"]
+        assert "files" in tree
+        assert "dirs" in tree
+        assert "hash" in tree
+
+    def test_scan_tree_contains_all_files(self, tmp_config, tmp_project):
+        sync = FileSynchronizer(tmp_config)
+        snap = sync.scan(tmp_project)
+        tree = snap["tree"]
+        # Root-level files
+        assert "main.py" in tree["files"]
+        assert "utils.py" in tree["files"]
+        # Nested file
+        assert "sub" in tree["dirs"]
+        assert "mod.py" in tree["dirs"]["sub"]["files"]
 
     def test_scan_hashes_are_xxhash(self, tmp_config, tmp_project):
         sync = FileSynchronizer(tmp_config)
         snap = sync.scan(tmp_project)
-        for h in snap["files"].values():
+        tree = snap["tree"]
+        for h in tree["files"].values():
             assert len(h) == 16  # xxh3_64 hex length
 
     def test_scan_ignores_pycache(self, tmp_config, tmp_project):
@@ -58,20 +72,21 @@ class TestFileSynchronizer:
         (cache / "main.cpython-312.pyc").write_bytes(b"\x00")
         sync = FileSynchronizer(tmp_config)
         snap = sync.scan(tmp_project)
-        assert not any("__pycache__" in k for k in snap["files"])
+        assert "__pycache__" not in snap["tree"]["dirs"]
 
     def test_scan_respects_custom_ignore(self, tmp_config, tmp_project):
         sync = FileSynchronizer(tmp_config, ignore_patterns={"sub"})
         snap = sync.scan(tmp_project)
-        assert not any("sub" in k for k in snap["files"])
-        assert len(snap["files"]) == 2
+        assert "sub" not in snap["tree"]["dirs"]
+        assert len(snap["tree"]["files"]) == 2
 
-    def test_save_and_load_snapshot(self, tmp_config):
+    def test_save_and_load_roundtrip(self, tmp_config, tmp_project):
         sync = FileSynchronizer(tmp_config)
-        snap = {"files": {"a.py": "abc123"}, "root_hash": "xyz", "timestamp": "now"}
+        snap = sync.scan(tmp_project)
         sync.save_snapshot("testproj", snap)
         loaded = sync.load_snapshot("testproj")
-        assert loaded == snap
+        assert loaded["root_hash"] == snap["root_hash"]
+        assert loaded["tree"] == snap["tree"]
 
     def test_load_missing_snapshot_returns_none(self, tmp_config):
         sync = FileSynchronizer(tmp_config)
@@ -82,8 +97,23 @@ class TestFileSynchronizer:
         snap1 = sync.scan(tmp_project)
         (tmp_project / "main.py").write_text("print('changed')")
         snap2 = sync.scan(tmp_project)
-        assert snap1["files"]["main.py"] != snap2["files"]["main.py"]
+        assert snap1["tree"]["files"]["main.py"] != snap2["tree"]["files"]["main.py"]
         assert snap1["root_hash"] != snap2["root_hash"]
+
+    def test_backward_compat_old_flat_snapshot_no_crash(self, tmp_config, tmp_project):
+        """Loading a legacy flat snapshot and comparing with new tree should not crash."""
+        sync = FileSynchronizer(tmp_config)
+        # Simulate old flat snapshot
+        old_snap = {
+            "files": {"main.py": "oldhash", "utils.py": "oldhash2"},
+            "root_hash": "oldroot",
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        sync.save_snapshot("testproj", old_snap)
+        loaded = sync.load_snapshot("testproj")
+        # BackgroundSync handles legacy format - verify the snapshot loads
+        assert "files" in loaded
+        assert "tree" not in loaded
 
 
 class TestBackgroundSync:
@@ -148,3 +178,22 @@ class TestBackgroundSync:
         bg.stop()
         assert bg._running is False
         assert bg._timer is None
+
+    def test_backward_compat_old_flat_snapshot(self, tmp_config, tmp_project):
+        """Old flat snapshot should trigger full comparison without crash."""
+        sync = FileSynchronizer(tmp_config)
+        # Save a legacy flat snapshot
+        old_snap = {
+            "files": {"main.py": "oldhash"},
+            "root_hash": "oldroot",
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        sync.save_snapshot("proj", old_snap)
+
+        callback = MagicMock()
+        bg = BackgroundSync(tmp_config, tmp_project, "proj", callback)
+        bg.sync_now()
+        # Should detect changes without crashing
+        callback.assert_called_once()
+        changed, removed = callback.call_args[0]
+        assert len(changed) > 0

@@ -35,10 +35,10 @@ class FileSynchronizer:
         self._ignore = ignore_patterns if ignore_patterns is not None else DEFAULT_IGNORE
 
     def scan(self, project_path: Path) -> dict:
-        """Walk project files, compute xxHash digests.
+        """Walk project files, compute xxHash digests in a hierarchical tree.
 
         Returns snapshot dict:
-            {files: {relative_path: hash}, root_hash: str, timestamp: str}
+            {tree: {hierarchical structure}, root_hash: str, timestamp: str}
         """
         dag = MerkleDAG()
         project_path = project_path.resolve()
@@ -46,7 +46,6 @@ class FileSynchronizer:
         for file_path in sorted(project_path.rglob("*")):
             if not file_path.is_file():
                 continue
-            # Skip ignored directories
             rel = file_path.relative_to(project_path)
             if any(part in self._ignore for part in rel.parts):
                 continue
@@ -57,7 +56,7 @@ class FileSynchronizer:
             dag.add_node(str(rel), content)
 
         return {
-            "files": dag.nodes,
+            "tree": dag.get_tree(),
             "root_hash": dag.root_hash,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

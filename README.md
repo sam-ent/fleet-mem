@@ -40,6 +40,34 @@ No manual venv activation needed. The MCP client runs fleet-mem using its own ve
 
 <br>
 
+### Docker (alternative)
+
+```bash
+./scripts/docker-setup.sh
+```
+
+MCP client configuration for Docker:
+
+```json
+{
+  "mcpServers": {
+    "fleet-mem": {
+      "command": "docker",
+      "args": ["exec", "-i", "fleet-mem-fleet-mem-1", "python", "-m", "src.server"]
+    }
+  }
+}
+```
+
+Mount your code as a volume to index it:
+
+```yaml
+# Add to docker-compose.yml under fleet-mem.volumes:
+- /path/to/your/projects:/projects:ro
+```
+
+<br>
+
 ### Index your codebases
 
 ```bash
@@ -494,7 +522,7 @@ fleet_stats() -> {
 
 - [ ] Hierarchical Merkle sync for large monorepos
 - [ ] Asyncio transition for concurrent agent workloads
-- [ ] Docker Compose deployment (fleet-mem + Ollama in one container)
+- [x] Docker Compose deployment (fleet-mem + Ollama in one container)
 - [ ] File-watching for near-instant sync (replace polling)
 - [ ] Performance benchmarks
 

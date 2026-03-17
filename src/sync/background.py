@@ -65,8 +65,15 @@ class BackgroundSync:
         old_snapshot = self._synchronizer.load_snapshot(self._project_name)
         new_snapshot = self._synchronizer.scan(self._project_path)
 
-        old_files = old_snapshot["files"] if old_snapshot else {}
-        diff = MerkleDAG.compare(old_files, new_snapshot["files"])
+        if old_snapshot is None:
+            old_tree = {"hash": "", "files": {}, "dirs": {}}
+        elif "tree" in old_snapshot:
+            old_tree = old_snapshot["tree"]
+        else:
+            # Legacy flat format: fall back to flat comparison
+            old_tree = old_snapshot["files"]
+        new_tree = new_snapshot["tree"]
+        diff = MerkleDAG.compare(old_tree, new_tree)
 
         changed = sorted(diff["added"] | diff["modified"])
         removed = sorted(diff["removed"])

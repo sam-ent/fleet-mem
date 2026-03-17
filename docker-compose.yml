@@ -1,0 +1,30 @@
+services:
+  fleet-mem:
+    build: .
+    stdin_open: true
+    volumes:
+      - fleet-data:/data/fleet-mem
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      CHROMA_PATH: /data/fleet-mem/chroma
+      MEMORY_DB_PATH: /data/fleet-mem/memory.db
+      FLEET_DB_PATH: /data/fleet-mem/fleet.db
+      EMBED_CACHE_PATH: /data/fleet-mem/embeddings_cache.db
+      ANONYMIZED_TELEMETRY: "False"
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  fleet-data:
+  ollama-models:
