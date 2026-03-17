@@ -396,6 +396,47 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 
 ---
 
+## Observability
+
+fleet-mem includes OpenTelemetry tracing (zero new dependencies, uses the OTel SDK already bundled with ChromaDB). Disabled by default.
+
+### Quick start
+
+```bash
+# Enable tracing and point to your collector
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317  # Jaeger, Grafana Tempo, etc.
+```
+
+### What is traced
+
+| Span | Key attributes |
+|------|---------------|
+| `fleet.index` | project, chunk_count |
+| `fleet.search` | query_hash (never raw query), result_count |
+| `fleet.memory.store` | content_hash, node_type, agent_id |
+| `fleet.memory.search` | query_hash, result_count |
+
+All content is hashed in span attributes for privacy. Raw code and queries never appear in traces.
+
+### Fleet stats (no collector needed)
+
+The `fleet_stats` MCP tool returns current metrics without requiring an external collector:
+
+```
+fleet_stats() -> {
+  collections: {code_myproject: 1523},
+  total_chunks: 1523,
+  memory_nodes: 47,
+  active_locks: 2,
+  subscriptions: 5,
+  pending_notifications: 1,
+  cached_embeddings: 892
+}
+```
+
+---
+
 ## MCP tools reference
 
 ### Code search (6 tools)
@@ -437,7 +478,7 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 
 <br>
 
-### Status (4 tools)
+### Status and observability (5 tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -445,6 +486,7 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. A future 
 | `clear_index` | `path` | Drop a project's index and reset |
 | `get_branches` | `path` | List indexed branches with chunk counts |
 | `cleanup_branch` | `path, branch` | Drop a branch overlay after merge |
+| `fleet_stats` | | Current metrics: chunks, memories, locks, cache hits, notifications |
 
 ---
 

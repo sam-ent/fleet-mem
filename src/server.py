@@ -13,6 +13,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from .observability import get_tracer, hash_content
+
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -103,7 +105,12 @@ def index_codebase(
     """
     from .indexer import index_codebase as _index
 
+    tracer = get_tracer()
+    span = tracer.start_span("fleet.index")
     project = _project_name_from_path(path)
+    span.set_attribute("fleet.project", project)
+    if branch:
+        span.set_attribute("fleet.branch", branch)
     collection_name = f"code_{project}"
     config = _get_config()
     db = _get_db(config)
@@ -116,6 +123,8 @@ def index_codebase(
         bi = BranchIndex(db, project)
         changed_files = bi.get_changed_files(path, branch)
         if not changed_files:
+            span.set_attribute("fleet.chunk_count", 0)
+            span.end()
             return {"project": project, "branch": branch, "status": "no_changes", "chunk_count": 0}
 
         with _status_lock:
@@ -176,6 +185,7 @@ def index_codebase(
                         d.vector = v
 
                 count = bi.index_branch(branch, changed_files, all_docs)
+                span.set_attribute("fleet.chunk_count", count)
 
                 import datetime
 
@@ -197,6 +207,8 @@ def index_codebase(
                         "last_sync": None,
                         "error": str(exc),
                     }
+            finally:
+                span.end()
 
         thread = threading.Thread(target=_run_branch, daemon=True)
         thread.start()
@@ -205,6 +217,8 @@ def index_codebase(
     # Check if already indexed and not forcing
     if not force and db.has_collection(collection_name):
         count = db.count(collection_name)
+        span.set_attribute("fleet.chunk_count", count)
+        span.end()
         with _status_lock:
             _index_status[project] = {
                 "status": "indexed",
@@ -242,6 +256,7 @@ def index_codebase(
                 progress=_progress,
                 extra_ignore_patterns=ignore_patterns,
             )
+            span.set_attribute("fleet.chunk_count", chunk_count)
             import datetime
 
             with _status_lock:
@@ -256,6 +271,8 @@ def index_codebase(
             logger.exception("Indexing failed for %s", project)
             with _status_lock:
                 _index_status[project].update({"status": "failed", "error": str(exc)})
+        finally:
+            span.end()
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
@@ -282,65 +299,77 @@ def search_code(
     overlay first (higher priority) then falls back to the base collection,
     excluding files already found in the overlay.
     """
-    limit = min(max(limit, 1), 100)
-    config = _get_config()
-    db = _get_db(config)
-    embedder = _get_embedder(config)
+    tracer = get_tracer()
+    with tracer.start_as_current_span("fleet.search") as span:
+        span.set_attribute("fleet.query_hash", hash_content(query))
+        span.set_attribute("fleet.limit", limit)
 
-    vector = embedder.embed(query)
-    where = None
-    if extension_filter:
-        where = {"language": extension_filter}
+        limit = min(max(limit, 1), 100)
+        config = _get_config()
+        db = _get_db(config)
+        embedder = _get_embedder(config)
 
-    # Branch-aware search via BranchIndex
-    if branch and path:
-        from .fleet.branch_index import BranchIndex
+        vector = embedder.embed(query)
+        where = None
+        if extension_filter:
+            where = {"language": extension_filter}
 
-        project = _project_name_from_path(path)
-        bi = BranchIndex(db, project)
-        hits = bi.search(query_vector=vector, branch=branch, limit=limit, where=where)
-        results: list[dict[str, Any]] = []
-        for hit in hits:
-            meta = hit.get("metadata", {})
-            results.append(
-                {
-                    "file_path": meta.get("file_path", ""),
-                    "start_line": meta.get("start_line"),
-                    "end_line": meta.get("end_line"),
-                    "snippet": hit.get("content", ""),
-                    "score": hit.get("score", 0.0),
-                    "project": meta.get("project_name", ""),
-                }
-            )
-        return results
+        # Branch-aware search via BranchIndex
+        if branch and path:
+            from .fleet.branch_index import BranchIndex
 
-    # Determine which collections to search
-    if path:
-        project = _project_name_from_path(path)
-        collections = [f"code_{project}"]
-    else:
-        collections = [c for c in db.list_collections() if c.startswith("code_")]
+            project = _project_name_from_path(path)
+            bi = BranchIndex(db, project)
+            hits = bi.search(query_vector=vector, branch=branch, limit=limit, where=where)
+            results: list[dict[str, Any]] = []
+            for hit in hits:
+                meta = hit.get("metadata", {})
+                results.append(
+                    {
+                        "file_path": meta.get("file_path", ""),
+                        "start_line": meta.get("start_line"),
+                        "end_line": meta.get("end_line"),
+                        "snippet": hit.get("content", ""),
+                        "score": hit.get("score", 0.0),
+                        "project": meta.get("project_name", ""),
+                    }
+                )
+            span.set_attribute("fleet.result_count", len(results))
+            span.set_attribute("fleet.cache_hits", embedder.cache_hits)
+            span.set_attribute("fleet.cache_misses", embedder.cache_misses)
+            return results
 
-    results = []
-    for col_name in collections:
-        if not db.has_collection(col_name):
-            continue
-        hits = db.search(col_name, vector=vector, limit=limit, where=where)
-        for hit in hits:
-            meta = hit.get("metadata", {})
-            results.append(
-                {
-                    "file_path": meta.get("file_path", ""),
-                    "start_line": meta.get("start_line"),
-                    "end_line": meta.get("end_line"),
-                    "snippet": hit.get("content", ""),
-                    "score": hit.get("score", 0.0),
-                    "project": meta.get("project_name", ""),
-                }
-            )
+        # Determine which collections to search
+        if path:
+            project = _project_name_from_path(path)
+            collections = [f"code_{project}"]
+        else:
+            collections = [c for c in db.list_collections() if c.startswith("code_")]
 
-    results.sort(key=lambda r: r["score"], reverse=True)
-    return results[:limit]
+        results = []
+        for col_name in collections:
+            if not db.has_collection(col_name):
+                continue
+            hits = db.search(col_name, vector=vector, limit=limit, where=where)
+            for hit in hits:
+                meta = hit.get("metadata", {})
+                results.append(
+                    {
+                        "file_path": meta.get("file_path", ""),
+                        "start_line": meta.get("start_line"),
+                        "end_line": meta.get("end_line"),
+                        "snippet": hit.get("content", ""),
+                        "score": hit.get("score", 0.0),
+                        "project": meta.get("project_name", ""),
+                    }
+                )
+
+        results.sort(key=lambda r: r["score"], reverse=True)
+        final = results[:limit]
+        span.set_attribute("fleet.result_count", len(final))
+        span.set_attribute("fleet.cache_hits", embedder.cache_hits)
+        span.set_attribute("fleet.cache_misses", embedder.cache_misses)
+        return final
 
 
 # ---------------------------------------------------------------------------
@@ -714,20 +743,25 @@ def memory_search(
     node_type: str | None = None,
 ) -> list[dict[str, Any]]:
     """Search stored agent memories."""
-    top_k = min(max(top_k, 1), 100)
-    mem = _get_memory()
-    hits = mem.memory_search(query, top_k=top_k, node_type=node_type)
-    return [
-        {
-            "id": h.id,
-            "node_type": h.node_type,
-            "content": h.content,
-            "summary": h.summary,
-            "score": h.score,
-            "file_path": h.file_path,
-        }
-        for h in hits
-    ]
+    tracer = get_tracer()
+    with tracer.start_as_current_span("fleet.memory.search") as span:
+        span.set_attribute("fleet.query_hash", hash_content(query))
+        span.set_attribute("fleet.top_k", top_k)
+        top_k = min(max(top_k, 1), 100)
+        mem = _get_memory()
+        hits = mem.memory_search(query, top_k=top_k, node_type=node_type)
+        span.set_attribute("fleet.result_count", len(hits))
+        return [
+            {
+                "id": h.id,
+                "node_type": h.node_type,
+                "content": h.content,
+                "summary": h.summary,
+                "score": h.score,
+                "file_path": h.file_path,
+            }
+            for h in hits
+        ]
 
 
 @mcp.tool(description="Store a new memory node.")
@@ -742,18 +776,22 @@ def memory_store(
     project_path: str | None = None,
 ) -> dict[str, str]:
     """Store a memory node with optional file anchor."""
-    mem = _get_memory()
-    node_id = mem.memory_store(
-        node_type=node_type,
-        content=content,
-        summary=summary,
-        keywords=keywords,
-        file_path=file_path,
-        line_range=line_range,
-        source=source,
-        project_path=project_path,
-    )
-    return {"id": node_id, "status": "stored"}
+    tracer = get_tracer()
+    with tracer.start_as_current_span("fleet.memory.store") as span:
+        span.set_attribute("fleet.content_hash", hash_content(content))
+        span.set_attribute("fleet.node_type", node_type)
+        mem = _get_memory()
+        node_id = mem.memory_store(
+            node_type=node_type,
+            content=content,
+            summary=summary,
+            keywords=keywords,
+            file_path=file_path,
+            line_range=line_range,
+            source=source,
+            project_path=project_path,
+        )
+        return {"id": node_id, "status": "stored"}
 
 
 @mcp.tool(description="Promote a project memory to global scope.")
@@ -819,6 +857,25 @@ def stale_check(
         }
         for s in stale
     ]
+
+
+# ---------------------------------------------------------------------------
+# Tool: get_fleet_stats
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Get fleet-wide statistics: chunk counts, memory nodes, locks, cache size.")
+def fleet_stats() -> dict[str, Any]:
+    """Collect and return current fleet metrics."""
+    from .fleet.stats import get_fleet_stats as _get_stats
+
+    cfg = _get_config()
+    return _get_stats(
+        chroma_path=cfg.chroma_path,
+        memory_db_path=cfg.memory_db_path,
+        fleet_db_path=cfg.fleet_db_path,
+        embed_cache_path=cfg.embed_cache_path,
+    )
 
 
 # ---------------------------------------------------------------------------

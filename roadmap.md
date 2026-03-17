@@ -1,22 +1,33 @@
 # Roadmap
 
+## Completed
+
+- ~~Recursive AST splitting for nested methods/classes~~ (Phase 1)
+- ~~Embedding cache for near-instant re-indexing~~ (Phase 1)
+- ~~Ghost chunk cleanup / stale vector reconciliation~~ (Phase 1)
+- ~~xxHash for faster file hashing and chunk IDs~~ (Phase 1)
+- ~~Auto re-index changed files in background sync~~
+- ~~OpenAI-compatible embedding adapter~~ (covers OpenAI, DeepSeek, Gemini, Together, etc.)
+- ~~Custom embedding provider documentation~~ (Cohere, Bedrock, HuggingFace examples)
+- ~~OpenTelemetry observability~~ (tracing spans, fleet stats tool, privacy-safe hashing)
+
 ## Near-term
 
-- Expand AST language support (currently 5 languages, targeting 15+)
-- Performance benchmarks and optimization for large codebases
+- Go/Rust recursive AST splitting (promote to Tier 1)
+- Performance benchmarks on real codebases (10k, 50k, 100k+ files)
 - MCP client configuration guides for Cursor, Windsurf, and other editors
-- Automated re-indexing on file system changes
 
 ## Medium-term
 
-- Agent workflow templates for common multi-agent patterns
-- Web dashboard for fleet status visualization (locks, active agents, memory feed)
-- Plugin system for custom embedding providers (OpenAI, Cohere, local models)
-- Token usage estimation and budget controls
+- Hierarchical Merkle sync (skip unchanged directories, near-instant for large repos)
+- Asyncio transition for concurrent agent workloads
+- Docker Compose deployment (fleet-mem + Ollama in one container)
+- File-watching for near-instant sync (replace polling)
 
 ## Long-term
 
+- Agent workflow templates for common multi-agent patterns
+- Web dashboard for fleet status (locks, active agents, memory feed)
 - Distributed fleet coordination across multiple machines
-- Real-time file watching to replace polling-based sync
 - Integration with CI/CD pipelines for automated re-indexing on merge
-- Shared fleet state across teams (optional, opt-in)
+- Token usage estimation and budget controls

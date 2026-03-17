@@ -66,6 +66,16 @@ class CachedEmbedding(Embedding):
     def __init__(self, inner: Embedding, cache: EmbeddingCache):
         self._inner = inner
         self._cache = cache
+        self._hits = 0
+        self._misses = 0
+
+    @property
+    def cache_hits(self) -> int:
+        return self._hits
+
+    @property
+    def cache_misses(self) -> int:
+        return self._misses
 
     def _hash(self, text: str) -> str:
         return xxhash.xxh3_64(text.encode()).hexdigest()
@@ -75,7 +85,9 @@ class CachedEmbedding(Embedding):
         provider = self._inner.get_provider()
         cached = self._cache.get(h, provider, "")
         if cached is not None:
+            self._hits += 1
             return cached
+        self._misses += 1
         vec = self._inner.embed(text)
         self._cache.put(h, vec, provider, "")
         return vec
@@ -92,8 +104,10 @@ class CachedEmbedding(Embedding):
         for i, (h, t) in enumerate(zip(hashes, texts)):
             cached = self._cache.get(h, provider, "")
             if cached is not None:
+                self._hits += 1
                 results.append(cached)
             else:
+                self._misses += 1
                 results.append(None)
                 miss_indices.append(i)
                 miss_texts.append(t)
