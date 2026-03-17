@@ -10,6 +10,10 @@
 - ~~OpenAI-compatible embedding adapter~~ (covers OpenAI, DeepSeek, Gemini, Together, etc.)
 - ~~Custom embedding provider documentation~~ (Cohere, Bedrock, HuggingFace examples)
 - ~~OpenTelemetry observability~~ (tracing spans, fleet stats tool, privacy-safe hashing)
+- ~~Hierarchical Merkle sync~~ (Phase 2)
+- ~~Asyncio transition~~ (Phase 2)
+- ~~Docker Compose deployment~~ (Phase 2)
+- ~~File-watching for near-instant sync~~ (Phase 2)
 
 ## Near-term
 
@@ -19,15 +23,13 @@
 
 ## Medium-term
 
-- Hierarchical Merkle sync (skip unchanged directories, near-instant for large repos)
-- Asyncio transition for concurrent agent workloads
-- Docker Compose deployment (fleet-mem + Ollama in one container)
-- File-watching for near-instant sync (replace polling)
+- Agent workflow templates for common multi-agent patterns
+- Web dashboard for fleet status (locks, active agents, memory feed)
+- Token usage estimation and budget controls
+- Memory pruning / TTL-based decay for stale memories
 
 ## Long-term
 
-- Agent workflow templates for common multi-agent patterns
-- Web dashboard for fleet status (locks, active agents, memory feed)
 - Distributed fleet coordination across multiple machines
 - Integration with CI/CD pipelines for automated re-indexing on merge
-- Token usage estimation and budget controls
+- Shared fleet state across teams (optional, opt-in)

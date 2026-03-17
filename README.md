@@ -520,11 +520,11 @@ fleet_stats() -> {
 
 ## What's next
 
-- [ ] Hierarchical Merkle sync for large monorepos
-- [ ] Asyncio transition for concurrent agent workloads
-- [x] Docker Compose deployment (fleet-mem + Ollama in one container)
-- [ ] File-watching for near-instant sync (replace polling)
-- [ ] Performance benchmarks
+- [ ] Go/Rust recursive AST splitting (promote to Tier 1)
+- [ ] Performance benchmarks on real codebases
+- [ ] MCP client configuration guides for Cursor, Windsurf
+- [ ] Agent workflow templates for common multi-agent patterns
+- [ ] Web dashboard for fleet status visualization
 
 See [roadmap.md](roadmap.md) for the full plan.
 
