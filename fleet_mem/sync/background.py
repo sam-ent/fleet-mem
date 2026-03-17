@@ -5,9 +5,9 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from src.config import Config
-from src.sync.merkle import MerkleDAG
-from src.sync.synchronizer import FileSynchronizer
+from fleet_mem.config import Config
+from fleet_mem.sync.merkle import MerkleDAG
+from fleet_mem.sync.synchronizer import FileSynchronizer
 
 logger = logging.getLogger(__name__)
 

@@ -98,7 +98,7 @@ mkdir -p "$(dirname "$MCP_SETTINGS_FILE")"
 MCP_ENTRY=$(cat <<JSONEOF
 {
   "command": "${VENV_DIR}/bin/python",
-  "args": ["-m", "src.server"],
+  "args": ["-m", "fleet_mem.server"],
   "cwd": "${PROJECT_DIR}",
   "env": {
     "ANONYMIZED_TELEMETRY": "False"

@@ -6,7 +6,7 @@ import pytest
 
 openai = pytest.importorskip("openai", reason="openai package not installed")
 
-from src.embedding.openai_compat import OpenAICompatibleEmbedding  # noqa: E402
+from fleet_mem.embedding.openai_compat import OpenAICompatibleEmbedding  # noqa: E402
 
 
 def _fake_response(dim: int, count: int):

@@ -50,10 +50,10 @@ import sys
 sys.path.insert(0, sys.argv[3])
 
 from pathlib import Path
-from src.config import Config
-from src.indexer import index_codebase
-from src.vectordb.chromadb_store import ChromaDBStore
-from src.embedding.ollama_embed import OllamaEmbedding
+from fleet_mem.config import Config
+from fleet_mem.indexer import index_codebase
+from fleet_mem.vectordb.chromadb_store import ChromaDBStore
+from fleet_mem.embedding.ollama_embed import OllamaEmbedding
 
 config = Config()
 db = ChromaDBStore(config.chroma_path)

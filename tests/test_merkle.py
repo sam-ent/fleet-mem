@@ -2,7 +2,7 @@
 
 import xxhash
 
-from src.sync.merkle import MerkleDAG
+from fleet_mem.sync.merkle import MerkleDAG
 
 
 class TestMerkleDAG:

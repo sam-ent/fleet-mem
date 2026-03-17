@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from src.fleet.branch_index import BranchIndex, _sanitize_branch  # noqa: E402
-from src.vectordb.types import VectorDocument  # noqa: E402
+from fleet_mem.fleet.branch_index import BranchIndex, _sanitize_branch  # noqa: E402
+from fleet_mem.vectordb.types import VectorDocument  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -281,7 +281,8 @@ class TestGetChangedFiles:
         mock_result.returncode = 0
         mock_result.stdout = "src/a.py\nsrc/b.py\n"
 
-        with patch("src.fleet.branch_index.subprocess.run", return_value=mock_result) as mock_run:
+        patch_target = "fleet_mem.fleet.branch_index.subprocess.run"
+        with patch(patch_target, return_value=mock_result) as mock_run:
             files = bi.get_changed_files("/tmp/proj", "feat/x")
 
         assert files == ["src/a.py", "src/b.py"]
@@ -300,7 +301,7 @@ class TestGetChangedFiles:
         mock_result.returncode = 128
         mock_result.stdout = ""
 
-        with patch("src.fleet.branch_index.subprocess.run", return_value=mock_result):
+        with patch("fleet_mem.fleet.branch_index.subprocess.run", return_value=mock_result):
             files = bi.get_changed_files("/tmp/proj", "feat/x")
 
         assert files == []

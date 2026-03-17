@@ -1,12 +1,12 @@
 """Tests for cross-agent memory sharing."""
 
-from src.fleet.cross_agent import (
+from fleet_mem.fleet.cross_agent import (
     _notify_subscribers,
     memory_feed,
     memory_notifications,
     memory_subscribe,
 )
-from src.memory.engine import MemoryEngine
+from fleet_mem.memory.engine import MemoryEngine
 
 
 class TestMemoryFeed:

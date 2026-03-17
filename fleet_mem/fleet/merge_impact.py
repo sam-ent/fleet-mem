@@ -7,8 +7,8 @@ import sqlite3
 import uuid
 from pathlib import Path
 
-from src.fleet.cross_agent import _notify_subscribers
-from src.fleet.lock_registry import lock_query
+from fleet_mem.fleet.cross_agent import _notify_subscribers
+from fleet_mem.fleet.lock_registry import lock_query
 
 
 def _now_iso() -> str:

@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from src.vectordb.types import VectorDocument
+from fleet_mem.vectordb.types import VectorDocument
 
 
 class VectorDatabase(ABC):

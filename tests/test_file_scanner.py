@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from src.splitter.file_scanner import scan_files
+from fleet_mem.splitter.file_scanner import scan_files
 
 
 class TestFileScanner:

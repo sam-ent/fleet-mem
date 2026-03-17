@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.config import Config
-from src.embedding.ollama_embed import OllamaEmbedding
+from fleet_mem.config import Config
+from fleet_mem.embedding.ollama_embed import OllamaEmbedding
 
 
 def _fake_embed_response(dim: int, count: int) -> dict:
@@ -17,7 +17,7 @@ def config(tmp_path):
     return Config(chroma_path=tmp_path / "chroma")
 
 
-@patch("src.embedding.ollama_embed.ollama_lib.Client")
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
 def test_embed_single(mock_client_cls, config):
     mock_client = MagicMock()
     mock_client.embed.return_value = _fake_embed_response(768, 1)
@@ -30,7 +30,7 @@ def test_embed_single(mock_client_cls, config):
     mock_client.embed.assert_called_once_with(model="nomic-embed-text", input=["hello"])
 
 
-@patch("src.embedding.ollama_embed.ollama_lib.Client")
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
 def test_embed_batch_chunking(mock_client_cls, config):
     mock_client = MagicMock()
     mock_client_cls.return_value = mock_client
@@ -48,7 +48,7 @@ def test_embed_batch_chunking(mock_client_cls, config):
     assert mock_client.embed.call_count == 2
 
 
-@patch("src.embedding.ollama_embed.ollama_lib.Client")
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
 def test_dimension_auto_detection(mock_client_cls, config):
     mock_client = MagicMock()
     mock_client.embed.return_value = _fake_embed_response(384, 1)
@@ -64,7 +64,7 @@ def test_dimension_auto_detection(mock_client_cls, config):
     assert mock_client.embed.call_count == 1
 
 
-@patch("src.embedding.ollama_embed.ollama_lib.Client")
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
 def test_connection_error(mock_client_cls, config):
     mock_client = MagicMock()
     mock_client.embed.side_effect = Exception("Connection refused")
@@ -75,7 +75,7 @@ def test_connection_error(mock_client_cls, config):
         emb.embed("hello")
 
 
-@patch("src.embedding.ollama_embed.ollama_lib.Client")
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
 def test_get_provider(mock_client_cls, config):
     mock_client_cls.return_value = MagicMock()
     emb = OllamaEmbedding(config)

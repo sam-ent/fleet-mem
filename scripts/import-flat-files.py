@@ -14,11 +14,11 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from src.config import Config  # noqa: E402
-from src.embedding.ollama_embed import OllamaEmbedding  # noqa: E402
-from src.memory.embedder import MemoryEmbedder  # noqa: E402
-from src.memory.engine import MemoryEngine  # noqa: E402
-from src.vectordb.chromadb_store import ChromaDBStore  # noqa: E402
+from fleet_mem.config import Config  # noqa: E402
+from fleet_mem.embedding.ollama_embed import OllamaEmbedding  # noqa: E402
+from fleet_mem.memory.embedder import MemoryEmbedder  # noqa: E402
+from fleet_mem.memory.engine import MemoryEngine  # noqa: E402
+from fleet_mem.vectordb.chromadb_store import ChromaDBStore  # noqa: E402
 
 
 def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:

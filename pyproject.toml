@@ -6,8 +6,19 @@ build-backend = "setuptools.build_meta"
 name = "fleet-mem"
 version = "0.1.0"
 description = "Shared code intelligence for agent fleets — AST-aware semantic search + multi-agent memory with git-concurrent coordination"
+readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+keywords = ["mcp", "agent-memory", "code-search", "multi-agent", "semantic-search", "tree-sitter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 
 dependencies = [
     "mcp>=1.0.0",
@@ -21,6 +32,11 @@ dependencies = [
     "xxhash>=3.4.0",
     "watchdog>=4.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/sam-ent/fleet-mem"
+Repository = "https://github.com/sam-ent/fleet-mem"
+Issues = "https://github.com/sam-ent/fleet-mem/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -36,7 +52,7 @@ languages = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["fleet_mem*"]
 
 [tool.ruff]
 target-version = "py311"

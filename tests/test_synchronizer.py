@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.config import Config
-from src.sync.background import BackgroundSync
-from src.sync.synchronizer import FileSynchronizer
+from fleet_mem.config import Config
+from fleet_mem.sync.background import BackgroundSync
+from fleet_mem.sync.synchronizer import FileSynchronizer
 
 
 @pytest.fixture

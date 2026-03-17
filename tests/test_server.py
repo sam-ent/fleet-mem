@@ -18,7 +18,7 @@ def _vec(seed: float = 1.0, dim: int = 8) -> list[float]:
 @pytest.fixture(autouse=True)
 def _reset_index_status():
     """Reset the global index status dict between tests."""
-    from src.server import _index_status
+    from fleet_mem.server import _index_status
 
     _index_status.clear()
     yield
@@ -28,11 +28,11 @@ def _reset_index_status():
 @pytest.fixture(autouse=True)
 def _reset_bg_sync():
     """Reset the background sync flag between tests."""
-    import src.server
+    import fleet_mem.server
 
-    src.server._bg_syncs_started = False
+    fleet_mem.server._bg_syncs_started = False
     yield
-    src.server._bg_syncs_started = False
+    fleet_mem.server._bg_syncs_started = False
 
 
 @pytest.fixture
@@ -74,11 +74,11 @@ def mock_embedder():
 def _patch_deps(mock_config, mock_db, mock_embedder):
     """Patch the server's factory functions."""
     with (
-        patch("src.server._get_config", return_value=mock_config),
-        patch("src.server._get_db", return_value=mock_db),
-        patch("src.server._get_embedder", return_value=mock_embedder),
-        patch("src.server._get_memory") as mock_mem_factory,
-        patch("src.server._ensure_background_sync", new_callable=AsyncMock),
+        patch("fleet_mem.server._get_config", return_value=mock_config),
+        patch("fleet_mem.server._get_db", return_value=mock_db),
+        patch("fleet_mem.server._get_embedder", return_value=mock_embedder),
+        patch("fleet_mem.server._get_memory") as mock_mem_factory,
+        patch("fleet_mem.server._ensure_background_sync", new_callable=AsyncMock),
     ):
         mock_mem = MagicMock()
         mock_mem_factory.return_value = mock_mem
@@ -98,9 +98,9 @@ def _patch_deps(mock_config, mock_db, mock_embedder):
 class TestIndexCodebase:
     @pytest.mark.asyncio
     async def test_returns_indexing_status(self, _patch_deps):
-        from src.server import index_codebase
+        from fleet_mem.server import index_codebase
 
-        with patch("src.server.threading") as mock_threading:
+        with patch("fleet_mem.server.threading") as mock_threading:
             mock_thread = MagicMock()
             mock_threading.Thread.return_value = mock_thread
 
@@ -112,7 +112,7 @@ class TestIndexCodebase:
 
     @pytest.mark.asyncio
     async def test_returns_indexed_if_collection_exists(self, _patch_deps):
-        from src.server import index_codebase
+        from fleet_mem.server import index_codebase
 
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].count.return_value = 42
@@ -124,12 +124,12 @@ class TestIndexCodebase:
 
     @pytest.mark.asyncio
     async def test_force_reindexes(self, _patch_deps):
-        from src.server import index_codebase
+        from fleet_mem.server import index_codebase
 
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].count.return_value = 42
 
-        with patch("src.server.threading") as mock_threading:
+        with patch("fleet_mem.server.threading") as mock_threading:
             mock_thread = MagicMock()
             mock_threading.Thread.return_value = mock_thread
 
@@ -146,7 +146,7 @@ class TestIndexCodebase:
 class TestSearchCode:
     @pytest.mark.asyncio
     async def test_returns_results_structure(self, _patch_deps):
-        from src.server import search_code
+        from fleet_mem.server import search_code
 
         _patch_deps["db"].list_collections.return_value = ["code_myproject"]
         _patch_deps["db"].has_collection.return_value = True
@@ -177,7 +177,7 @@ class TestSearchCode:
 
     @pytest.mark.asyncio
     async def test_scoped_to_project(self, _patch_deps):
-        from src.server import search_code
+        from fleet_mem.server import search_code
 
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].search.return_value = []
@@ -188,7 +188,7 @@ class TestSearchCode:
 
     @pytest.mark.asyncio
     async def test_extension_filter(self, _patch_deps):
-        from src.server import search_code
+        from fleet_mem.server import search_code
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
         _patch_deps["db"].has_collection.return_value = True
@@ -201,7 +201,7 @@ class TestSearchCode:
 
     @pytest.mark.asyncio
     async def test_empty_collections(self, _patch_deps):
-        from src.server import search_code
+        from fleet_mem.server import search_code
 
         _patch_deps["db"].list_collections.return_value = []
         results = await search_code(query="test")
@@ -216,7 +216,7 @@ class TestSearchCode:
 class TestClearIndex:
     @pytest.mark.asyncio
     async def test_drops_collection(self, _patch_deps):
-        from src.server import clear_index
+        from fleet_mem.server import clear_index
 
         _patch_deps["db"].has_collection.return_value = True
 
@@ -228,7 +228,7 @@ class TestClearIndex:
 
     @pytest.mark.asyncio
     async def test_no_collection_still_succeeds(self, _patch_deps):
-        from src.server import clear_index
+        from fleet_mem.server import clear_index
 
         _patch_deps["db"].has_collection.return_value = False
 
@@ -246,7 +246,7 @@ class TestClearIndex:
 class TestGetIndexStatus:
     @pytest.mark.asyncio
     async def test_not_indexed(self, _patch_deps):
-        from src.server import get_index_status
+        from fleet_mem.server import get_index_status
 
         _patch_deps["db"].has_collection.return_value = False
 
@@ -257,7 +257,7 @@ class TestGetIndexStatus:
 
     @pytest.mark.asyncio
     async def test_indexed_from_db(self, _patch_deps):
-        from src.server import get_index_status
+        from fleet_mem.server import get_index_status
 
         _patch_deps["db"].has_collection.return_value = True
         _patch_deps["db"].count.return_value = 100
@@ -269,7 +269,7 @@ class TestGetIndexStatus:
 
     @pytest.mark.asyncio
     async def test_status_from_tracking_dict(self, _patch_deps):
-        from src.server import _index_status, get_index_status
+        from fleet_mem.server import _index_status, get_index_status
 
         _index_status["myproject"] = {
             "status": "indexing",
@@ -292,7 +292,7 @@ class TestGetIndexStatus:
 class TestFindSymbol:
     @pytest.mark.asyncio
     async def test_returns_matches(self, _patch_deps):
-        from src.server import find_symbol
+        from fleet_mem.server import find_symbol
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
 
@@ -321,7 +321,7 @@ class TestFindSymbol:
 
     @pytest.mark.asyncio
     async def test_file_path_filter(self, _patch_deps):
-        from src.server import find_symbol
+        from fleet_mem.server import find_symbol
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
 
@@ -354,7 +354,7 @@ class TestFindSymbol:
 
     @pytest.mark.asyncio
     async def test_empty_results(self, _patch_deps):
-        from src.server import find_symbol
+        from fleet_mem.server import find_symbol
 
         _patch_deps["db"].list_collections.return_value = []
         results = await find_symbol(name="nonexistent")
@@ -369,7 +369,7 @@ class TestFindSymbol:
 class TestGetChangeImpact:
     @pytest.mark.asyncio
     async def test_finds_impacted_chunks(self, _patch_deps):
-        from src.server import get_change_impact
+        from fleet_mem.server import get_change_impact
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
 
@@ -395,7 +395,7 @@ class TestGetChangeImpact:
 
     @pytest.mark.asyncio
     async def test_empty_inputs(self, _patch_deps):
-        from src.server import get_change_impact
+        from fleet_mem.server import get_change_impact
 
         _patch_deps["db"].list_collections.return_value = []
         results = await get_change_impact()
@@ -410,7 +410,7 @@ class TestGetChangeImpact:
 class TestGetDependents:
     @pytest.mark.asyncio
     async def test_finds_dependents(self, _patch_deps):
-        from src.server import get_dependents
+        from fleet_mem.server import get_dependents
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
 
@@ -437,7 +437,7 @@ class TestGetDependents:
 
     @pytest.mark.asyncio
     async def test_skips_definition_file(self, _patch_deps):
-        from src.server import get_dependents
+        from fleet_mem.server import get_dependents
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
 
@@ -468,7 +468,7 @@ class TestGetDependents:
 class TestFindSimilarCode:
     @pytest.mark.asyncio
     async def test_returns_similar_chunks(self, _patch_deps):
-        from src.server import find_similar_code
+        from fleet_mem.server import find_similar_code
 
         _patch_deps["db"].list_collections.return_value = ["code_proj"]
         _patch_deps["db"].has_collection.return_value = True
@@ -501,7 +501,7 @@ class TestFindSimilarCode:
 class TestMemorySearch:
     @pytest.mark.asyncio
     async def test_returns_results(self, _patch_deps):
-        from src.server import memory_search
+        from fleet_mem.server import memory_search
 
         mock_mem = _patch_deps["memory"]
         mock_result = MagicMock()
@@ -524,7 +524,7 @@ class TestMemorySearch:
 class TestMemoryStore:
     @pytest.mark.asyncio
     async def test_stores_and_returns_id(self, _patch_deps):
-        from src.server import memory_store
+        from fleet_mem.server import memory_store
 
         mock_mem = _patch_deps["memory"]
         mock_mem.memory_store.return_value = "new-id-123"
@@ -539,7 +539,7 @@ class TestMemoryStore:
 class TestMemoryPromote:
     @pytest.mark.asyncio
     async def test_promotes(self, _patch_deps):
-        from src.server import memory_promote
+        from fleet_mem.server import memory_promote
 
         mock_mem = _patch_deps["memory"]
 
@@ -552,7 +552,7 @@ class TestMemoryPromote:
 class TestStaleCheck:
     @pytest.mark.asyncio
     async def test_returns_stale_anchors(self, _patch_deps):
-        from src.server import stale_check
+        from fleet_mem.server import stale_check
 
         mock_mem = _patch_deps["memory"]
         mock_anchor = MagicMock()

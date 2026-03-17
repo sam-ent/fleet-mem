@@ -1,7 +1,7 @@
 """Tests for AST splitter and text splitter."""
 
-from src.splitter.ast_splitter import split_ast, supported_languages
-from src.splitter.text_splitter import split_text
+from fleet_mem.splitter.ast_splitter import split_ast, supported_languages
+from fleet_mem.splitter.text_splitter import split_text
 
 # ─── Python AST splitting ───────────────────────────────────────────
 

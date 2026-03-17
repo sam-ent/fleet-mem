@@ -2,6 +2,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io)
+[![PyPI](https://img.shields.io/pypi/v/fleet-mem.svg)](https://pypi.org/project/fleet-mem/)
 
 # fleet-mem
 
@@ -31,12 +32,16 @@ fleet-mem is a local [MCP](https://modelcontextprotocol.io) server that gives AI
 ### Install
 
 ```bash
+pip install fleet-mem
+```
+
+Or from source:
+
+```bash
 git clone https://github.com/sam-ent/fleet-mem.git
 cd fleet-mem
 ./scripts/setup.sh  # Creates venv, installs deps, registers MCP server
 ```
-
-No manual venv activation needed. The MCP client runs fleet-mem using its own venv automatically.
 
 <br>
 
@@ -53,7 +58,7 @@ MCP client configuration for Docker:
   "mcpServers": {
     "fleet-mem": {
       "command": "docker",
-      "args": ["exec", "-i", "fleet-mem-fleet-mem-1", "python", "-m", "src.server"]
+      "args": ["exec", "-i", "fleet-mem-fleet-mem-1", "python", "-m", "fleet_mem.server"]
     }
   }
 }
@@ -85,7 +90,7 @@ Add to your MCP client settings (the `setup.sh` script does this automatically f
   "mcpServers": {
     "fleet-mem": {
       "command": "/path/to/fleet-mem/.venv/bin/python",
-      "args": ["-m", "src.server"],
+      "args": ["-m", "fleet_mem.server"],
       "cwd": "/path/to/fleet-mem",
       "env": {
         "OLLAMA_HOST": "http://localhost:11434",

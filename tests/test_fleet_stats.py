@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-from src.fleet.stats import get_fleet_stats
+from fleet_mem.fleet.stats import get_fleet_stats
 
 
 def _create_memory_db(path: Path):

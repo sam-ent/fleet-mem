@@ -1,6 +1,6 @@
 """Tests for observability module."""
 
-from src.observability import get_tracer, hash_content
+from fleet_mem.observability import get_tracer, hash_content
 
 
 def test_get_tracer_returns_tracer():

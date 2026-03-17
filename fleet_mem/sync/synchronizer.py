@@ -6,8 +6,8 @@ from pathlib import Path
 
 import xxhash
 
-from src.config import Config
-from src.sync.merkle import MerkleDAG
+from fleet_mem.config import Config
+from fleet_mem.sync.merkle import MerkleDAG
 
 # Default patterns to ignore (common non-source dirs/files)
 DEFAULT_IGNORE = {

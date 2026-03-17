@@ -6,10 +6,10 @@ from pathlib import Path
 
 import xxhash
 
-from src.embedding.base import Embedding
-from src.memory.engine import MemoryEngine
-from src.vectordb.base import VectorDatabase
-from src.vectordb.types import VectorDocument
+from fleet_mem.embedding.base import Embedding
+from fleet_mem.memory.engine import MemoryEngine
+from fleet_mem.vectordb.base import VectorDatabase
+from fleet_mem.vectordb.types import VectorDocument
 
 MEMORY_COLLECTION = "memory"
 
@@ -117,7 +117,7 @@ class MemoryEmbedder:
 
         # Notify subscribers if file_path matches their patterns
         if file_path and agent_id and fleet_db_path:
-            from src.fleet.cross_agent import _notify_subscribers
+            from fleet_mem.fleet.cross_agent import _notify_subscribers
 
             _notify_subscribers(
                 fleet_db_path=Path(fleet_db_path),

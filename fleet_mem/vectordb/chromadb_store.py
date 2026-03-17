@@ -4,8 +4,8 @@ from pathlib import Path
 
 import chromadb
 
-from src.vectordb.base import VectorDatabase
-from src.vectordb.types import VectorDocument
+from fleet_mem.vectordb.base import VectorDatabase
+from fleet_mem.vectordb.types import VectorDocument
 
 
 class ChromaDBStore(VectorDatabase):

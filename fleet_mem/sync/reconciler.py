@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from src.vectordb.base import VectorDatabase
+from fleet_mem.vectordb.base import VectorDatabase
 
 logger = logging.getLogger(__name__)
 

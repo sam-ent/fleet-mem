@@ -35,7 +35,7 @@ Create a new file in `src/embedding/`. Here is a minimal template:
 ```python
 # src/embedding/my_provider.py
 import os
-from src.embedding.base import Embedding
+from fleet_mem.embedding.base import Embedding
 
 BATCH_SIZE = 64  # adjust to your API's batch limit
 
@@ -110,7 +110,7 @@ MY_PROVIDER_API_KEY=your-key-here
 ```python
 # src/embedding/cohere_embed.py
 import cohere
-from src.embedding.base import Embedding
+from fleet_mem.embedding.base import Embedding
 
 class CohereEmbedding(Embedding):
 
@@ -154,7 +154,7 @@ class CohereEmbedding(Embedding):
 # src/embedding/bedrock_embed.py
 import json
 import boto3
-from src.embedding.base import Embedding
+from fleet_mem.embedding.base import Embedding
 
 class BedrockEmbedding(Embedding):
 
@@ -190,7 +190,7 @@ class BedrockEmbedding(Embedding):
 
 ```python
 # src/embedding/hf_embed.py
-from src.embedding.base import Embedding
+from fleet_mem.embedding.base import Embedding
 
 class HuggingFaceEmbedding(Embedding):
 

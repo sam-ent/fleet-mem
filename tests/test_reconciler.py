@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.sync.reconciler import ChunkReconciler
-from src.vectordb.chromadb_store import ChromaDBStore
+from fleet_mem.sync.reconciler import ChunkReconciler
+from fleet_mem.vectordb.chromadb_store import ChromaDBStore
 
 
 @pytest.fixture()
@@ -18,7 +18,7 @@ def db(tmp_path: Path) -> ChromaDBStore:
 
 def _insert_chunks(db: ChromaDBStore, collection: str, file_path: str, count: int = 3):
     """Insert dummy chunks for a file."""
-    from src.vectordb.types import VectorDocument
+    from fleet_mem.vectordb.types import VectorDocument
 
     dim = 8
     db.create_collection(collection, dim)

@@ -18,8 +18,8 @@ echo ""
 echo "MCP client configuration:"
 echo '  "fleet-mem": {'
 echo '    "command": "docker",'
-echo '    "args": ["exec", "-i", "fleet-mem-fleet-mem-1", "python", "-m", "src.server"]'
+echo '    "args": ["exec", "-i", "fleet-mem-fleet-mem-1", "python", "-m", "fleet_mem.server"]'
 echo '  }'
 echo ""
 echo "To index a codebase, mount it and run:"
-echo "  docker compose exec fleet-mem python -c \"from src.indexer import ...\""
+echo "  docker compose exec fleet-mem python -c \"from fleet_mem.indexer import ...\""

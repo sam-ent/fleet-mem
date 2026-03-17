@@ -2,8 +2,8 @@
 
 import ollama as ollama_lib
 
-from src.config import Config
-from src.embedding.base import Embedding
+from fleet_mem.config import Config
+from fleet_mem.embedding.base import Embedding
 
 _BATCH_CHUNK_SIZE = 64
 

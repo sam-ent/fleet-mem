@@ -4,9 +4,9 @@ import hashlib
 
 import pytest
 
-from src.memory.embedder import MemoryEmbedder, _hash_file
-from src.memory.engine import MemoryEngine
-from src.vectordb.chromadb_store import ChromaDBStore
+from fleet_mem.memory.embedder import MemoryEmbedder, _hash_file
+from fleet_mem.memory.engine import MemoryEngine
+from fleet_mem.vectordb.chromadb_store import ChromaDBStore
 
 DIM = 8
 

@@ -12,7 +12,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from src.vectordb.base import VectorDatabase
+from fleet_mem.vectordb.base import VectorDatabase
 
 
 def _sanitize_branch(branch: str) -> str:

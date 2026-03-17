@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from src.embedding.base import Embedding
+from fleet_mem.embedding.base import Embedding
 
 _BATCH_CHUNK_SIZE = 64
 

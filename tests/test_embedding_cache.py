@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.embedding.cache import CachedEmbedding, EmbeddingCache
+from fleet_mem.embedding.cache import CachedEmbedding, EmbeddingCache
 
 
 @pytest.fixture

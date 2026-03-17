@@ -34,7 +34,7 @@ class TestIndexFiles:
 
     def test_indexes_specific_files_only(self, tmp_path, mock_db, mock_embedder):
         """index_files processes only the listed files, not the whole directory."""
-        from src.indexer import index_files
+        from fleet_mem.indexer import index_files
 
         # Create 3 files but only index 1
         (tmp_path / "a.py").write_text("def hello():\n    return 1\n")
@@ -62,7 +62,7 @@ class TestIndexFiles:
 
     def test_indexes_multiple_files(self, tmp_path, mock_db, mock_embedder):
         """index_files handles multiple files."""
-        from src.indexer import index_files
+        from fleet_mem.indexer import index_files
 
         (tmp_path / "a.py").write_text("def hello():\n    return 1\n")
         (tmp_path / "b.py").write_text("def world():\n    return 2\n")
@@ -80,7 +80,7 @@ class TestIndexFiles:
 
     def test_skips_missing_files_continues_with_rest(self, tmp_path, mock_db, mock_embedder):
         """A missing file is skipped; remaining files still get indexed."""
-        from src.indexer import index_files
+        from fleet_mem.indexer import index_files
 
         (tmp_path / "good.py").write_text("def ok():\n    return True\n")
         # "missing.py" does not exist
@@ -100,7 +100,7 @@ class TestIndexFiles:
 
     def test_skips_file_that_fails_to_parse(self, tmp_path, mock_db, mock_embedder):
         """If reading a file raises, that file is skipped."""
-        from src.indexer import index_files
+        from fleet_mem.indexer import index_files
 
         (tmp_path / "good.py").write_text("x = 1\n")
         bad_file = tmp_path / "bad.py"
@@ -130,7 +130,7 @@ class TestIndexFiles:
 
     def test_empty_file_list_returns_zero(self, tmp_path, mock_db, mock_embedder):
         """No files means no work."""
-        from src.indexer import index_files
+        from fleet_mem.indexer import index_files
 
         result = index_files(
             root=tmp_path,
@@ -151,7 +151,7 @@ class TestReindexCallback:
 
     def test_callback_reindexes_changed_files(self, tmp_path):
         """The callback deletes old chunks AND re-indexes changed files."""
-        from src.indexer import IndexFilesResult
+        from fleet_mem.indexer import IndexFilesResult
 
         mock_config = MagicMock()
         mock_db = MagicMock()
@@ -166,10 +166,10 @@ class TestReindexCallback:
         )
 
         with (
-            patch("src.server._get_db", return_value=mock_db),
-            patch("src.server._get_embedder", return_value=mock_embedder),
-            patch("src.indexer.index_files", return_value=mock_index_result) as mock_idx,
-            patch("src.server.Path") as mock_path_cls,
+            patch("fleet_mem.server._get_db", return_value=mock_db),
+            patch("fleet_mem.server._get_embedder", return_value=mock_embedder),
+            patch("fleet_mem.indexer.index_files", return_value=mock_index_result) as mock_idx,
+            patch("fleet_mem.server.Path") as mock_path_cls,
         ):
             # Make Path.home() / "CODE" / project point to a real-ish dir
             mock_project_dir = MagicMock()
@@ -188,7 +188,7 @@ class TestReindexCallback:
 
             mock_path_cls.side_effect = _path_init
 
-            from src.server import _make_reindex_callback
+            from fleet_mem.server import _make_reindex_callback
 
             callback = _make_reindex_callback(mock_config)
             callback(
@@ -215,11 +215,11 @@ class TestReindexCallback:
         mock_db.has_collection.return_value = True
 
         with (
-            patch("src.server._get_db", return_value=mock_db),
-            patch("src.server._get_embedder"),
-            patch("src.indexer.index_files") as mock_idx,
+            patch("fleet_mem.server._get_db", return_value=mock_db),
+            patch("fleet_mem.server._get_embedder"),
+            patch("fleet_mem.indexer.index_files") as mock_idx,
         ):
-            from src.server import _make_reindex_callback
+            from fleet_mem.server import _make_reindex_callback
 
             callback = _make_reindex_callback(mock_config)
             callback(changed_files=[], removed_files=["myproj/old.py"])
@@ -234,8 +234,8 @@ class TestReindexCallback:
         """If the callback raises, it logs but does not propagate."""
         mock_config = MagicMock()
 
-        with patch("src.server._get_db", side_effect=RuntimeError("db broke")):
-            from src.server import _make_reindex_callback
+        with patch("fleet_mem.server._get_db", side_effect=RuntimeError("db broke")):
+            from fleet_mem.server import _make_reindex_callback
 
             callback = _make_reindex_callback(mock_config)
             # Should not raise

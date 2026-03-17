@@ -2,8 +2,8 @@
 
 import pytest
 
-from src.vectordb.chromadb_store import ChromaDBStore
-from src.vectordb.types import VectorDocument
+from fleet_mem.vectordb.chromadb_store import ChromaDBStore
+from fleet_mem.vectordb.types import VectorDocument
 
 DIM = 8
 

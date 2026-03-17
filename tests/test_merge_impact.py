@@ -1,9 +1,9 @@
 """Tests for merge impact preview and post-merge notifications."""
 
-from src.fleet.cross_agent import memory_notifications, memory_subscribe
-from src.fleet.lock_registry import lock_acquire
-from src.fleet.merge_impact import merge_impact, notify_merge
-from src.memory.engine import MemoryEngine
+from fleet_mem.fleet.cross_agent import memory_notifications, memory_subscribe
+from fleet_mem.fleet.lock_registry import lock_acquire
+from fleet_mem.fleet.merge_impact import merge_impact, notify_merge
+from fleet_mem.memory.engine import MemoryEngine
 
 
 class TestMergeImpact:

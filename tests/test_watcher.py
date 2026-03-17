@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from src.sync.watcher import FileWatcher
+from fleet_mem.sync.watcher import FileWatcher
 
 
 def test_create_triggers_changed(tmp_path: Path):

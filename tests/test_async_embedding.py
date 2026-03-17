@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.config import Config
+from fleet_mem.config import Config
 
 
 def _fake_embed_response(dim: int, count: int) -> dict:
@@ -26,7 +26,7 @@ def config(tmp_path):
 class TestBaseAsyncFallback:
     @pytest.mark.asyncio
     async def test_aembed_falls_back_to_sync(self):
-        from src.embedding.base import Embedding
+        from fleet_mem.embedding.base import Embedding
 
         class StubEmbed(Embedding):
             def embed(self, text):
@@ -53,10 +53,10 @@ class TestBaseAsyncFallback:
 
 class TestOllamaAsync:
     @pytest.mark.asyncio
-    @patch("src.embedding.ollama_embed.ollama_lib.Client")
-    @patch("src.embedding.ollama_embed.ollama_lib.AsyncClient")
+    @patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
+    @patch("fleet_mem.embedding.ollama_embed.ollama_lib.AsyncClient")
     async def test_aembed_single(self, mock_async_cls, mock_client_cls, config):
-        from src.embedding.ollama_embed import OllamaEmbedding
+        from fleet_mem.embedding.ollama_embed import OllamaEmbedding
 
         mock_client_cls.return_value = MagicMock()
         mock_async = AsyncMock()
@@ -70,10 +70,10 @@ class TestOllamaAsync:
         mock_async.embed.assert_called_once_with(model="nomic-embed-text", input=["hello"])
 
     @pytest.mark.asyncio
-    @patch("src.embedding.ollama_embed.ollama_lib.Client")
-    @patch("src.embedding.ollama_embed.ollama_lib.AsyncClient")
+    @patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
+    @patch("fleet_mem.embedding.ollama_embed.ollama_lib.AsyncClient")
     async def test_aembed_batch(self, mock_async_cls, mock_client_cls, config):
-        from src.embedding.ollama_embed import OllamaEmbedding
+        from fleet_mem.embedding.ollama_embed import OllamaEmbedding
 
         mock_client_cls.return_value = MagicMock()
         mock_async = AsyncMock()
@@ -90,10 +90,10 @@ class TestOllamaAsync:
         assert mock_async.embed.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("src.embedding.ollama_embed.ollama_lib.Client")
-    @patch("src.embedding.ollama_embed.ollama_lib.AsyncClient")
+    @patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
+    @patch("fleet_mem.embedding.ollama_embed.ollama_lib.AsyncClient")
     async def test_aembed_connection_error(self, mock_async_cls, mock_client_cls, config):
-        from src.embedding.ollama_embed import OllamaEmbedding
+        from fleet_mem.embedding.ollama_embed import OllamaEmbedding
 
         mock_client_cls.return_value = MagicMock()
         mock_async = AsyncMock()
@@ -113,7 +113,7 @@ class TestOllamaAsync:
 class TestCachedAsync:
     @pytest.mark.asyncio
     async def test_aembed_cache_hit(self, tmp_path):
-        from src.embedding.cache import CachedEmbedding, EmbeddingCache
+        from fleet_mem.embedding.cache import CachedEmbedding, EmbeddingCache
 
         inner = MagicMock()
         inner.get_provider.return_value = "test/model"
@@ -136,7 +136,7 @@ class TestCachedAsync:
 
     @pytest.mark.asyncio
     async def test_aembed_batch_partial_cache(self, tmp_path):
-        from src.embedding.cache import CachedEmbedding, EmbeddingCache
+        from fleet_mem.embedding.cache import CachedEmbedding, EmbeddingCache
 
         inner = MagicMock()
         inner.get_provider.return_value = "test/model"

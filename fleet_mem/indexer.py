@@ -9,12 +9,12 @@ from typing import Callable
 
 import xxhash
 
-from src.embedding.base import Embedding
-from src.splitter.ast_splitter import ASTChunk, split_ast, supported_languages
-from src.splitter.file_scanner import scan_files
-from src.splitter.text_splitter import TextChunk, split_text
-from src.vectordb.base import VectorDatabase
-from src.vectordb.types import VectorDocument
+from fleet_mem.embedding.base import Embedding
+from fleet_mem.splitter.ast_splitter import ASTChunk, split_ast, supported_languages
+from fleet_mem.splitter.file_scanner import scan_files
+from fleet_mem.splitter.text_splitter import TextChunk, split_text
+from fleet_mem.vectordb.base import VectorDatabase
+from fleet_mem.vectordb.types import VectorDocument
 
 logger = logging.getLogger(__name__)
 

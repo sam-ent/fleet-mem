@@ -4,7 +4,7 @@ import datetime
 import json
 import sqlite3
 
-from src.fleet.lock_registry import (
+from fleet_mem.fleet.lock_registry import (
     lock_acquire,
     lock_heartbeat,
     lock_query,
