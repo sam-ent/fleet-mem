@@ -1,7 +1,0 @@
-Collecting watchdog
-  Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)
-     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.3/44.3 kB 993.1 kB/s eta 0:00:00
-Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 79.1/79.1 kB 3.1 MB/s eta 0:00:00
-Installing collected packages: watchdog
-Successfully installed watchdog-6.0.0
