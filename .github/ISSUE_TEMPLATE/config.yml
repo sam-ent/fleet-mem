@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Help
+    url: https://github.com/sam-ent/fleet-mem/discussions
+    about: For questions, how-to help, and general discussion — please use Discussions instead of issues.
+  - name: Security Vulnerabilities
+    url: https://github.com/sam-ent/fleet-mem/security/advisories/new
+    about: Report security vulnerabilities privately. Do NOT open a public issue.

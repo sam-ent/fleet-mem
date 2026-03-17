@@ -1,0 +1,45 @@
+name: Feature Request
+description: Suggest an enhancement or new capability
+labels: ["feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! fleet-mem is solo-maintained, so features are accepted based on
+        alignment with the project's roadmap. Please describe the problem you're solving — not just
+        the solution you want.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem does this solve? Why do you need it?
+      placeholder: "As an agent developer, I need to ... because ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you try or consider?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I searched existing issues and this isn't a duplicate
+          required: true
+        - label: This is a single, focused feature (not a wishlist)
+          required: true
