@@ -46,7 +46,8 @@ jobs:
       - name: Install from wheel (with monitor extras)
         run: |
           python -m venv /tmp/test-monitor
-          /tmp/test-monitor/bin/pip install "dist/*.whl[monitor]"
+          WHEEL=$(ls dist/*.whl)
+          /tmp/test-monitor/bin/pip install "${WHEEL}[monitor]"
           /tmp/test-monitor/bin/fleet-mem --help
           /tmp/test-monitor/bin/python -c "from fleet_mem.monitor.app import FleetMonitorApp; print('monitor OK')"
 
