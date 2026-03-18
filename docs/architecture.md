@@ -8,7 +8,7 @@
         | stdio (MCP protocol)
         v
  +------------------+
- |  MCP Server      |  src/server.py — FastMCP entry point
+ |  MCP Server      |  fleet_mem/server.py — FastMCP entry point
  |  (12 tools)      |  Lazy-loads components on first tool call
  +--------+---------+
           |
@@ -31,7 +31,7 @@ All components run locally. No cloud services, no telemetry.
 
 ## Components
 
-### ChromaDB Store (`src/vectordb/chromadb_store.py`)
+### ChromaDB Store (`fleet_mem/vectordb/chromadb_store.py`)
 
 Persistent vector database for both code chunks and memory nodes.
 
@@ -43,7 +43,7 @@ Persistent vector database for both code chunks and memory nodes.
 Wraps `chromadb.PersistentClient`. All embeddings are pre-computed externally
 (Ollama) and passed as vectors — ChromaDB does not embed.
 
-### Ollama Embeddings (`src/embedding/ollama_embed.py`)
+### Ollama Embeddings (`fleet_mem/embedding/ollama_embed.py`)
 
 Local embedding via Ollama HTTP API.
 
@@ -52,7 +52,7 @@ Local embedding via Ollama HTTP API.
 - **Batch size:** 64 texts per request
 - **Auto-detection:** Dimension probed on first call
 
-### AST Splitter (`src/splitter/ast_splitter.py`)
+### AST Splitter (`fleet_mem/splitter/ast_splitter.py`)
 
 Tree-sitter based code chunking. Parses source files into semantic chunks
 (functions, classes, methods) preserving structural boundaries.
@@ -61,21 +61,21 @@ Tree-sitter based code chunking. Parses source files into semantic chunks
 - **Fallback:** `text_splitter.py` for unsupported languages (line-based sliding window)
 - **Metadata:** Each chunk carries `file_path`, `start_line`, `end_line`, `name`, `chunk_type`, `language`
 
-### File Scanner (`src/splitter/file_scanner.py`)
+### File Scanner (`fleet_mem/splitter/file_scanner.py`)
 
 Walks project directories respecting `.gitignore` patterns and configurable
 ignore lists. Feeds files to the AST splitter.
 
-### Merkle Sync (`src/sync/merkle.py`, `src/sync/synchronizer.py`)
+### Merkle Sync (`fleet_mem/sync/merkle.py`, `fleet_mem/sync/synchronizer.py`)
 
 Incremental re-indexing using content-addressed Merkle trees.
 
 - **Merkle tree:** SHA-1 hash of each file, rolled up per directory
 - **Snapshots:** Stored as JSON in `{chroma_path}/merkle/{project}.json`
 - **Sync logic:** Compare current tree vs snapshot, re-index only changed files
-- **Background:** `src/sync/background.py` runs sync on a configurable interval
+- **Background:** `fleet_mem/sync/background.py` runs sync on a configurable interval
 
-### Memory Engine (`src/memory/engine.py`)
+### Memory Engine (`fleet_mem/memory/engine.py`)
 
 SQLite-backed storage for agent memory nodes.
 
@@ -86,7 +86,7 @@ SQLite-backed storage for agent memory nodes.
   - `memory_fts` — FTS5 virtual table for keyword search over content and summary
 - **Features:** Insert, get, FTS search, file anchor management, project scoping
 
-### Memory Embedder (`src/memory/embedder.py`)
+### Memory Embedder (`fleet_mem/memory/embedder.py`)
 
 Hybrid search combining FTS5 keyword search with ChromaDB semantic search.
 
@@ -95,7 +95,7 @@ Hybrid search combining FTS5 keyword search with ChromaDB semantic search.
 - **File anchors:** Tracks file hashes to detect when anchored files change
 - **Collection:** `memory` in ChromaDB
 
-### Indexer (`src/indexer.py`)
+### Indexer (`fleet_mem/indexer.py`)
 
 Orchestrates the full indexing pipeline: scan files, split into chunks,
 embed, and insert into ChromaDB.
@@ -185,7 +185,7 @@ Recall:
 
 ```
 fleet-mem/
-├── src/
+├── fleet_mem/
 │   ├── server.py              # MCP server + tool definitions
 │   ├── config.py              # Config from env vars
 │   ├── indexer.py             # Indexing pipeline orchestrator

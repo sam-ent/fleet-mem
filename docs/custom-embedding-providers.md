@@ -4,7 +4,7 @@ fleet-mem supports any embedding provider through a simple plugin interface. If 
 
 ## The interface
 
-All embedding providers implement four methods defined in `src/embedding/base.py`:
+All embedding providers implement four methods defined in `fleet_mem/embedding/base.py`:
 
 ```python
 from abc import ABC, abstractmethod
@@ -30,10 +30,10 @@ That is the entire contract. fleet-mem does not care how the vectors are produce
 
 ### 1. Create your adapter file
 
-Create a new file in `src/embedding/`. Here is a minimal template:
+Create a new file in `fleet_mem/embedding/`. Here is a minimal template:
 
 ```python
-# src/embedding/my_provider.py
+# fleet_mem/embedding/my_provider.py
 import os
 from fleet_mem.embedding.base import Embedding
 
@@ -76,7 +76,7 @@ class MyProviderEmbedding(Embedding):
 
 ### 2. Register it in the server
 
-Edit `src/server.py` and find the `_get_embedder()` function. Add your provider:
+Edit `fleet_mem/server.py` and find the `_get_embedder()` function. Add your provider:
 
 ```python
 def _get_embedder(config=None):
@@ -108,7 +108,7 @@ MY_PROVIDER_API_KEY=your-key-here
 ### Cohere
 
 ```python
-# src/embedding/cohere_embed.py
+# fleet_mem/embedding/cohere_embed.py
 import cohere
 from fleet_mem.embedding.base import Embedding
 
@@ -151,7 +151,7 @@ class CohereEmbedding(Embedding):
 ### AWS Bedrock (Titan)
 
 ```python
-# src/embedding/bedrock_embed.py
+# fleet_mem/embedding/bedrock_embed.py
 import json
 import boto3
 from fleet_mem.embedding.base import Embedding
@@ -189,7 +189,7 @@ class BedrockEmbedding(Embedding):
 ### Hugging Face (local via sentence-transformers)
 
 ```python
-# src/embedding/hf_embed.py
+# fleet_mem/embedding/hf_embed.py
 from fleet_mem.embedding.base import Embedding
 
 class HuggingFaceEmbedding(Embedding):
@@ -217,5 +217,5 @@ class HuggingFaceEmbedding(Embedding):
 
 - **Dimension consistency**: once you index a project with one embedding model, you cannot switch models without re-indexing. Different models produce different dimensions and vector spaces.
 - **Batch limits**: check your provider's documentation for maximum batch sizes. Chunking in `embed_batch` prevents API errors.
-- **Error handling**: consider wrapping API calls in try/except and raising `ConnectionError` with a clear message, following the pattern in `src/embedding/ollama_embed.py`.
+- **Error handling**: consider wrapping API calls in try/except and raising `ConnectionError` with a clear message, following the pattern in `fleet_mem/embedding/ollama_embed.py`.
 - **Dependencies**: add your provider's SDK to `pyproject.toml` under `[project.optional-dependencies]` rather than core dependencies, so users who don't need it aren't forced to install it.

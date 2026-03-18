@@ -175,7 +175,7 @@ graph LR
 | Go, Rust | AST-aware | Tier 2: functions, types, impl blocks |
 | All other languages | Text-only | Fallback: sliding window (2500 chars, 300 overlap) |
 
-AST-aware splitting means search results are complete, meaningful code units. Text-only fallback still works but may return partial functions. Adding a new language requires defining its tree-sitter node types in `src/splitter/ast_splitter.py` (contributions welcome).
+AST-aware splitting means search results are complete, meaningful code units. Text-only fallback still works but may return partial functions. Adding a new language requires defining its tree-sitter node types in `fleet_mem/splitter/ast_splitter.py` (contributions welcome).
 
 <br>
 
