@@ -433,6 +433,70 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. File-watc
 
 fleet-mem includes OpenTelemetry tracing, structured logging with trace correlation, and a terminal monitoring UI. All disabled by default.
 
+#### Observability architecture
+
+```mermaid
+graph LR
+    subgraph fleet-mem server
+        DP[Data Plane<br/>index, search, memory]
+        CP[Coordination Plane<br/>locks, subscriptions, merges]
+        SL[structlog<br/>trace_id + span_id]
+        OT[OTel Spans]
+        SS[Stats Socket<br/>Unix 0600]
+    end
+
+    DP --> OT
+    CP --> OT
+    DP --> SL
+    CP --> SL
+
+    OT -->|OTLP gRPC| COL[Jaeger / Tempo<br/>/ any collector]
+    SL -->|JSON logs| LOG[Log aggregator]
+
+    SS -->|poll| TUI[fleet-mem monitor<br/>Textual TUI]
+
+    DB[(fleet.db<br/>sessions, locks,<br/>subscriptions)] --> SS
+```
+
+#### Monitoring a fleet
+
+> **<ins>Problem</ins>:** Multiple agents are working on the same codebase. You can't tell which agents are active, what files they've locked, or whether they're conflicting — until something breaks.
+>
+> **<ins>Solution</ins>:** Agents register on connect. The TUI monitor polls fleet state over a Unix socket and shows agents, locks, subscriptions, and notifications in real time.
+
+```mermaid
+sequenceDiagram
+    participant A as Agent A
+    participant B as Agent B
+    participant FM as fleet-mem
+    participant DB as fleet.db
+    participant TUI as fleet-mem monitor
+
+    A->>FM: fleet_register(agent-a, myapp, branch=fix/login)
+    FM->>DB: INSERT agent_sessions
+    B->>FM: fleet_register(agent-b, myapp, branch=feat/oauth)
+    FM->>DB: INSERT agent_sessions
+
+    TUI->>DB: poll stats.sock
+    Note over TUI: Agents tab: agent-a (active), agent-b (active)
+
+    A->>FM: lock_acquire(src/auth/*)
+    FM->>DB: INSERT agent_locks
+    B->>FM: lock_acquire(src/auth/login.py)
+    FM-->>B: conflict! (agent-a holds src/auth/*)
+
+    TUI->>DB: poll stats.sock
+    Note over TUI: Locks tab: agent-a → src/auth/*
+
+    A->>FM: memory_store("auth uses JWT")
+    FM->>DB: notify subscribers
+    B->>FM: memory_notifications(agent-b)
+    FM-->>B: "agent-a stored: auth uses JWT"
+
+    TUI->>DB: poll stats.sock
+    Note over TUI: Notifications tab: agent-a → agent-b
+```
+
 ### Quick start
 
 ```bash
