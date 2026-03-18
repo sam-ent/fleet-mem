@@ -1,15 +1,16 @@
 """Background sync: periodic file change detection and re-indexing."""
 
 import asyncio
-import logging
 from collections.abc import Callable
 from pathlib import Path
+
+import structlog
 
 from fleet_mem.config import Config
 from fleet_mem.sync.merkle import MerkleDAG
 from fleet_mem.sync.synchronizer import FileSynchronizer
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class BackgroundSync:

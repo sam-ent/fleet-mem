@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from fleet_mem.vectordb.base import VectorDatabase
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class ChunkReconciler:

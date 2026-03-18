@@ -14,7 +14,7 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir .
 
 # Copy source
-COPY src/ src/
+COPY fleet_mem/ fleet_mem/
 
 # Entry point
-CMD ["python", "-m", "src.server"]
+CMD ["python", "-m", "fleet_mem.server"]

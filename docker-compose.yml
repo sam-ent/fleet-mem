@@ -4,12 +4,14 @@ services:
     stdin_open: true
     volumes:
       - fleet-data:/data/fleet-mem
+      - fleet-sock:/run/fleet-mem
     environment:
       OLLAMA_HOST: http://ollama:11434
       CHROMA_PATH: /data/fleet-mem/chroma
       MEMORY_DB_PATH: /data/fleet-mem/memory.db
       FLEET_DB_PATH: /data/fleet-mem/fleet.db
       EMBED_CACHE_PATH: /data/fleet-mem/embeddings_cache.db
+      FLEET_STATS_SOCK: /run/fleet-mem/stats.sock
       ANONYMIZED_TELEMETRY: "False"
     depends_on:
       ollama:
@@ -27,4 +29,5 @@ services:
 
 volumes:
   fleet-data:
+  fleet-sock:
   ollama-models:

@@ -1,15 +1,15 @@
 """File watcher for near-instant sync using OS-native events."""
 
-import logging
 import threading
 from collections.abc import Callable
 from fnmatch import fnmatch
 from pathlib import Path
 
+import structlog
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Default ignore patterns
 _IGNORE_DIRS = {

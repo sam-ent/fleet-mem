@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - Unreleased
+
+### Added
+
+- Agent session registry: `fleet_register` and `fleet_agents` MCP tools for tracking which agents are connected, their worktrees, branches, and activity status
+- Agents tab in TUI monitor: real-time view of all registered agents with color-coded status (active/idle/disconnected)
+- Automatic session status management: idle after 2 min, disconnected after 5 min, pruned after 24h
+- Coordination-plane tracing: 10 new OTel spans covering agent registration, lock, subscription, notification, and merge operations
+- Structured logging via structlog with OpenTelemetry trace ID/span ID injection (log-to-trace correlation)
+- Fleet monitor TUI (`fleet-mem monitor`): Textual-based terminal dashboard with tabs, sparklines, agent filtering
+- Unix domain socket stats server (0600 perms, no network exposure) for TUI communication
+- Detailed stats mode: individual lock, subscription, and notification rows for rich monitoring
+- `fleet-mem` CLI entry point with `monitor` subcommand
+- `monitor` optional dependency group (`pip install fleet-mem[monitor]`)
+- Docker: stats socket exposed via named volume for host-side monitoring
+
+### Changed
+
+- Logging migrated from stdlib `logging` to `structlog` across all modules
+- `opentelemetry-api` and `structlog` are now explicit dependencies (OTel was previously transitive only)
+
+### Fixed
+
+- Dockerfile referenced stale `src/` directory (renamed to `fleet_mem/` in 0.2.0)
+
 ## [0.3.0] - 2025-03-17
 
 ### Added
