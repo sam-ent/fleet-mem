@@ -43,12 +43,15 @@ def fetch_stats(sock_path: str = "", detail: bool = True) -> dict:
             body = raw
 
         return json.loads(body)
-    except FileNotFoundError:
-        return {
-            "_error": f"Socket not found: {path}. Is fleet-mem running with FLEET_STATS_SOCK set?"
-        }
-    except ConnectionRefusedError:
-        return {"_error": f"Connection refused on {path}. Is fleet-mem running?"}
+    except (FileNotFoundError, ConnectionRefusedError, ConnectionResetError, OSError):
+        # Stale socket or server not running — clean up stale socket if possible
+        sock_file = Path(path)
+        if sock_file.exists():
+            try:
+                sock_file.unlink()
+            except OSError:
+                pass
+        return {"_waiting": True}
     except json.JSONDecodeError as exc:
         return {"_error": f"Invalid JSON from stats socket: {exc}"}
     except Exception as exc:

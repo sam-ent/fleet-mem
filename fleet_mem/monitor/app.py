@@ -192,6 +192,15 @@ class FleetMonitorApp(App):
         stats = fetch_stats(sock_path=self._sock_path, detail=True)
         self._last_stats = stats
 
+        if "_waiting" in stats:
+            try:
+                self.query_one("#stats-summary", Label).update(
+                    "[bold yellow]Waiting for fleet-mem server...[/]"
+                )
+            except Exception:
+                pass
+            return
+
         if "_error" in stats:
             try:
                 self.query_one("#stats-summary", Label).update(f"[bold red]{stats['_error']}[/]")
