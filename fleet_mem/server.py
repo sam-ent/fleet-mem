@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,34 @@ def _project_name_from_path(path: str) -> str:
 # MCP server definition
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("fleet-mem")
+_raw_mcp = FastMCP("fleet-mem")
+
+
+class _AutoRegisterMCP:
+    """Wraps FastMCP to auto-register/heartbeat on every tool call."""
+
+    def __init__(self, inner: FastMCP):
+        self._inner = inner
+
+    def tool(self, *args, **kwargs):
+        """Wrap the tool decorator to inject auto-registration."""
+        original_decorator = self._inner.tool(*args, **kwargs)
+
+        def wrapper(func):
+            @wraps(func)
+            async def instrumented(*a, **kw):
+                await _ensure_agent_registered()
+                return await func(*a, **kw)
+
+            return original_decorator(instrumented)
+
+        return wrapper
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+mcp = _AutoRegisterMCP(_raw_mcp)
 
 
 def _get_config():
@@ -1050,6 +1078,89 @@ _bg_syncs: list = []
 _file_watcher = None
 _bg_syncs_started = False
 
+# Auto-registration state
+_agent_registered = False
+_agent_id: str | None = None
+_agent_project: str | None = None
+_agent_worktree: str | None = None
+_agent_branch: str | None = None
+_last_heartbeat: float = 0.0
+_HEARTBEAT_INTERVAL = 30.0  # seconds
+
+
+def _detect_agent_context() -> None:
+    """Detect project, worktree, and branch from the server's cwd."""
+    global _agent_id, _agent_project, _agent_worktree, _agent_branch
+    import subprocess
+    import uuid
+
+    cwd = Path.cwd().resolve()
+    _agent_project = cwd.name
+    _agent_worktree = str(cwd)
+    _agent_id = f"agent-{uuid.uuid4().hex[:12]}"
+
+    # Detect git toplevel for project name
+    try:
+        toplevel = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if toplevel.returncode == 0:
+            _agent_project = Path(toplevel.stdout.strip()).name
+    except Exception:
+        pass
+
+    # Detect git branch
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            _agent_branch = result.stdout.strip()
+    except Exception:
+        pass
+
+
+async def _ensure_agent_registered() -> None:
+    """Auto-register on first tool call, debounced heartbeat on subsequent."""
+    import time
+
+    global _agent_registered, _last_heartbeat
+    if _agent_id is None:
+        return
+
+    cfg = _get_config()
+    now = time.monotonic()
+
+    if not _agent_registered:
+        _agent_registered = True
+        _last_heartbeat = now
+        from .fleet.sessions import register_agent
+
+        register_agent(
+            db_path=cfg.fleet_db_path,
+            agent_id=_agent_id,
+            project=_agent_project or "unknown",
+            worktree_path=_agent_worktree,
+            branch=_agent_branch,
+        )
+        logger.info(
+            "Agent auto-registered: %s (project=%s, branch=%s)",
+            _agent_id,
+            _agent_project,
+            _agent_branch,
+        )
+    elif now - _last_heartbeat >= _HEARTBEAT_INTERVAL:
+        _last_heartbeat = now
+        from .fleet.sessions import heartbeat_agent
+
+        heartbeat_agent(cfg.fleet_db_path, _agent_id)
+
 
 async def _ensure_background_sync():
     """Start background sync lazily on first tool call."""
@@ -1067,6 +1178,8 @@ async def _ensure_background_sync():
 def main():
     """Start the MCP server via stdio transport."""
     from .config import Config
+
+    _detect_agent_context()
 
     config = Config()
     logger.info("Fleet-Mem MCP server starting")
