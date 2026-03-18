@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+import structlog
 import xxhash
 
 from fleet_mem.embedding.base import Embedding
@@ -16,7 +16,7 @@ from fleet_mem.splitter.text_splitter import TextChunk, split_text
 from fleet_mem.vectordb.base import VectorDatabase
 from fleet_mem.vectordb.types import VectorDocument
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Batch size for embedding calls
 _EMBED_BATCH_SIZE = 64

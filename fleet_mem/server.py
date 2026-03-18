@@ -6,18 +6,17 @@ Provides semantic code search and agent memory tools via MCP protocol.
 from __future__ import annotations
 
 import asyncio
-import logging
-import sys
 import threading
 from pathlib import Path
 from typing import Any
 
+import structlog
 from mcp.server.fastmcp import FastMCP
 
-from .observability import get_tracer, hash_content
+from .observability import configure_logging, get_tracer, hash_content
 
-logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="[%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
+configure_logging()
+logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Index status tracking
@@ -868,11 +867,53 @@ async def stale_check(
 
 
 # ---------------------------------------------------------------------------
+# Tool: fleet_register
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    description="Register an agent session. Call once when starting work. "
+    "Tracks which agents are active, their worktrees, and branches."
+)
+async def fleet_register(
+    agent_id: str,
+    project: str,
+    worktree_path: str | None = None,
+    branch: str | None = None,
+) -> dict[str, str]:
+    """Register or update an agent session. Idempotent."""
+    from .fleet.sessions import register_agent
+
+    cfg = _get_config()
+    return register_agent(
+        db_path=cfg.fleet_db_path,
+        agent_id=agent_id,
+        project=project,
+        worktree_path=worktree_path,
+        branch=branch,
+    )
+
+
+@mcp.tool(
+    description="List all registered agent sessions with status (active, idle, disconnected)."
+)
+async def fleet_agents() -> list[dict[str, Any]]:
+    """Return all agent sessions with current statuses."""
+    from .fleet.sessions import list_agents
+
+    cfg = _get_config()
+    return list_agents(cfg.fleet_db_path)
+
+
+# ---------------------------------------------------------------------------
 # Tool: get_fleet_stats
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool(description="Get fleet-wide statistics: chunk counts, memory nodes, locks, cache size.")
+@mcp.tool(
+    description="Get fleet-wide statistics: chunk counts, memory nodes, "
+    "locks, cache size, active agents."
+)
 async def fleet_stats() -> dict[str, Any]:
     """Collect and return current fleet metrics."""
     from .fleet.stats import get_fleet_stats as _get_stats
@@ -1033,6 +1074,15 @@ def main():
     logger.info("Ollama host: %s", config.ollama_host)
     logger.info("Embedding model: %s", config.ollama_embed_model)
     logger.info("Memory DB: %s", config.memory_db_path)
+
+    # Start stats socket if configured
+    if config.stats_sock:
+        from pathlib import Path
+
+        from .stats_server import start_stats_server
+
+        sock_path = start_stats_server(config, sock_path=Path(config.stats_sock))
+        logger.info("Stats socket: %s", sock_path)
 
     mcp.run(transport="stdio")
 

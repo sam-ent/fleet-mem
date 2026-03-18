@@ -9,6 +9,10 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+from opentelemetry.trace import StatusCode
+
+from fleet_mem.observability import get_tracer, hash_content
+
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS agent_locks (
     id TEXT PRIMARY KEY,
@@ -67,105 +71,155 @@ def lock_acquire(
     ttl_minutes: int = 60,
 ) -> dict:
     """Acquire a lock. Returns dict with status 'acquired' or 'conflict'."""
-    conn = _connect(db_path)
-    try:
-        _cleanup_expired(conn)
+    tracer = get_tracer()
+    with tracer.start_as_current_span("fleet.lock.acquire") as span:
+        span.set_attribute("fleet.agent_id", agent_id)
+        span.set_attribute("fleet.project", project)
+        span.set_attribute("fleet.file_patterns", hash_content(json.dumps(file_patterns)))
+        try:
+            conn = _connect(db_path)
+            try:
+                _cleanup_expired(conn)
 
-        # Find active locks for this project by OTHER agents
-        rows = conn.execute(
-            "SELECT * FROM agent_locks WHERE project = ? AND status = 'active' AND agent_id != ?",
-            (project, agent_id),
-        ).fetchall()
+                # Find active locks for this project by OTHER agents
+                rows = conn.execute(
+                    "SELECT * FROM agent_locks "
+                    "WHERE project = ? AND status = 'active' AND agent_id != ?",
+                    (project, agent_id),
+                ).fetchall()
 
-        for row in rows:
-            existing = json.loads(row["file_patterns"])
-            if _patterns_overlap(existing, file_patterns):
-                return {
-                    "status": "conflict",
-                    "conflicting_agent": row["agent_id"],
-                    "conflicting_patterns": existing,
-                    "conflicting_lock_id": row["id"],
-                }
+                for row in rows:
+                    existing = json.loads(row["file_patterns"])
+                    if _patterns_overlap(existing, file_patterns):
+                        span.set_attribute("fleet.conflict_count", 1)
+                        span.set_attribute("fleet.lock.conflict_agent", row["agent_id"])
+                        return {
+                            "status": "conflict",
+                            "conflicting_agent": row["agent_id"],
+                            "conflicting_patterns": existing,
+                            "conflicting_lock_id": row["id"],
+                        }
 
-        now = _now()
-        lock_id = str(uuid.uuid4())
-        conn.execute(
-            "INSERT INTO agent_locks "
-            "(id, agent_id, project, file_patterns, branch, acquired_at, expires_at, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
-            (
-                lock_id,
-                agent_id,
-                project,
-                json.dumps(file_patterns),
-                branch,
-                _iso(now),
-                _iso(now + datetime.timedelta(minutes=ttl_minutes)),
-            ),
-        )
-        conn.commit()
-        return {"status": "acquired", "lock_id": lock_id}
-    finally:
-        conn.close()
+                now = _now()
+                lock_id = str(uuid.uuid4())
+                conn.execute(
+                    "INSERT INTO agent_locks "
+                    "(id, agent_id, project, file_patterns, "
+                    "branch, acquired_at, expires_at, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
+                    (
+                        lock_id,
+                        agent_id,
+                        project,
+                        json.dumps(file_patterns),
+                        branch,
+                        _iso(now),
+                        _iso(now + datetime.timedelta(minutes=ttl_minutes)),
+                    ),
+                )
+                conn.commit()
+                span.set_attribute("fleet.conflict_count", 0)
+                span.set_attribute("fleet.lock_id", lock_id)
+                return {"status": "acquired", "lock_id": lock_id}
+            finally:
+                conn.close()
+        except Exception as exc:
+            span.set_status(StatusCode.ERROR, str(exc))
+            span.record_exception(exc)
+            raise
 
 
 def lock_release(db_path: Path, agent_id: str, project: str) -> dict:
     """Release all locks for an agent on a project."""
-    conn = _connect(db_path)
-    try:
-        cursor = conn.execute(
-            "DELETE FROM agent_locks WHERE agent_id = ? AND project = ? AND status = 'active'",
-            (agent_id, project),
-        )
-        conn.commit()
-        return {"status": "released", "count": cursor.rowcount}
-    finally:
-        conn.close()
+    tracer = get_tracer()
+    with tracer.start_as_current_span("fleet.lock.release") as span:
+        span.set_attribute("fleet.agent_id", agent_id)
+        span.set_attribute("fleet.project", project)
+        try:
+            conn = _connect(db_path)
+            try:
+                cursor = conn.execute(
+                    "DELETE FROM agent_locks "
+                    "WHERE agent_id = ? AND project = ? AND status = 'active'",
+                    (agent_id, project),
+                )
+                conn.commit()
+                span.set_attribute("fleet.released_count", cursor.rowcount)
+                return {"status": "released", "count": cursor.rowcount}
+            finally:
+                conn.close()
+        except Exception as exc:
+            span.set_status(StatusCode.ERROR, str(exc))
+            span.record_exception(exc)
+            raise
 
 
 def lock_query(db_path: Path, project: str, file_path: str | None = None) -> dict:
     """List active locks, optionally filtered by file path overlap."""
-    conn = _connect(db_path)
-    try:
-        _cleanup_expired(conn)
+    tracer = get_tracer()
+    with tracer.start_as_current_span("fleet.lock.query") as span:
+        span.set_attribute("fleet.project", project)
+        try:
+            conn = _connect(db_path)
+            try:
+                _cleanup_expired(conn)
 
-        rows = conn.execute(
-            "SELECT * FROM agent_locks WHERE project = ? AND status = 'active'",
-            (project,),
-        ).fetchall()
+                rows = conn.execute(
+                    "SELECT * FROM agent_locks WHERE project = ? AND status = 'active'",
+                    (project,),
+                ).fetchall()
 
-        locks = []
-        for row in rows:
-            patterns = json.loads(row["file_patterns"])
-            if file_path is not None:
-                if not any(fnmatch.fnmatch(file_path, p) for p in patterns):
-                    continue
-            locks.append(
-                {
-                    "id": row["id"],
-                    "agent_id": row["agent_id"],
-                    "project": row["project"],
-                    "file_patterns": patterns,
-                    "branch": row["branch"],
-                    "acquired_at": row["acquired_at"],
-                    "expires_at": row["expires_at"],
-                }
-            )
-        return {"locks": locks}
-    finally:
-        conn.close()
+                locks = []
+                for row in rows:
+                    patterns = json.loads(row["file_patterns"])
+                    if file_path is not None:
+                        if not any(fnmatch.fnmatch(file_path, p) for p in patterns):
+                            continue
+                    locks.append(
+                        {
+                            "id": row["id"],
+                            "agent_id": row["agent_id"],
+                            "project": row["project"],
+                            "file_patterns": patterns,
+                            "branch": row["branch"],
+                            "acquired_at": row["acquired_at"],
+                            "expires_at": row["expires_at"],
+                        }
+                    )
+                span.set_attribute("fleet.lock_count", len(locks))
+                return {"locks": locks}
+            finally:
+                conn.close()
+        except Exception as exc:
+            span.set_status(StatusCode.ERROR, str(exc))
+            span.record_exception(exc)
+            raise
 
 
 def lock_heartbeat(db_path: Path, agent_id: str, ttl_minutes: int = 60) -> dict:
     """Extend expires_at on all active locks for an agent."""
-    conn = _connect(db_path)
-    try:
-        new_expires = _iso(_now() + datetime.timedelta(minutes=ttl_minutes))
-        cursor = conn.execute(
-            "UPDATE agent_locks SET expires_at = ? WHERE agent_id = ? AND status = 'active'",
-            (new_expires, agent_id),
-        )
-        conn.commit()
-        return {"status": "extended", "count": cursor.rowcount, "new_expires_at": new_expires}
-    finally:
-        conn.close()
+    tracer = get_tracer()
+    with tracer.start_as_current_span("fleet.lock.heartbeat") as span:
+        span.set_attribute("fleet.agent_id", agent_id)
+        try:
+            conn = _connect(db_path)
+            try:
+                new_expires = _iso(_now() + datetime.timedelta(minutes=ttl_minutes))
+                cursor = conn.execute(
+                    "UPDATE agent_locks SET expires_at = ? "
+                    "WHERE agent_id = ? AND status = 'active'",
+                    (new_expires, agent_id),
+                )
+                conn.commit()
+                span.set_attribute("fleet.extended_count", cursor.rowcount)
+                return {
+                    "status": "extended",
+                    "count": cursor.rowcount,
+                    "new_expires_at": new_expires,
+                }
+            finally:
+                conn.close()
+        except Exception as exc:
+            span.set_status(StatusCode.ERROR, str(exc))
+            span.record_exception(exc)
+            raise

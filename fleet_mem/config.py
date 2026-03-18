@@ -62,6 +62,9 @@ class Config:
         )
     )
 
+    # Stats socket (Unix domain socket for monitoring TUI)
+    stats_sock: str = field(default_factory=lambda: os.environ.get("FLEET_STATS_SOCK", ""))
+
     # OpenTelemetry
     otel_enabled: bool = field(
         default_factory=lambda: (

@@ -431,7 +431,7 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. File-watc
 
 ## Observability
 
-fleet-mem includes OpenTelemetry tracing (zero new dependencies, uses the OTel SDK already bundled with ChromaDB). Disabled by default.
+fleet-mem includes OpenTelemetry tracing, structured logging with trace correlation, and a terminal monitoring UI. All disabled by default.
 
 ### Quick start
 
@@ -443,14 +443,77 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317  # Jaeger, Grafana Tempo, etc.
 
 ### What is traced
 
+**Data plane:**
+
 | Span | Key attributes |
 |------|---------------|
 | `fleet.index` | project, chunk_count |
-| `fleet.search` | query_hash (never raw query), result_count |
-| `fleet.memory.store` | content_hash, node_type, agent_id |
+| `fleet.search` | query_hash (never raw query), result_count, cache_hits |
+| `fleet.memory.store` | content_hash, node_type |
 | `fleet.memory.search` | query_hash, result_count |
 
-All content is hashed in span attributes for privacy. Raw code and queries never appear in traces.
+**Coordination plane:**
+
+| Span | Key attributes |
+|------|---------------|
+| `fleet.lock.acquire` | agent_id, project, conflict_count, lock_id |
+| `fleet.lock.release` | agent_id, project, released_count |
+| `fleet.lock.query` | project, lock_count |
+| `fleet.lock.heartbeat` | agent_id, extended_count |
+| `fleet.memory.feed` | agent_id, since_minutes, result_count |
+| `fleet.memory.subscribe` | agent_id, project, subscription_count |
+| `fleet.memory.notifications` | agent_id, notification_count |
+| `fleet.memory.notify_subscribers` | author_agent_id, subscriber_count, notification_count |
+| `fleet.merge.impact` | project, file_count, conflict_count, subscriber_count |
+| `fleet.merge.notify` | project, branch, notification_count, stale_anchor_count |
+
+All content is hashed in span attributes for privacy. Raw code and queries never appear in traces. All coordination spans record errors with `StatusCode.ERROR` and exception details.
+
+### Structured logging
+
+fleet-mem uses [structlog](https://www.structlog.org/) with OpenTelemetry trace context injection. When a span is active, `trace_id` and `span_id` are automatically added to every log line — enabling log-to-trace correlation in Grafana, Datadog, or any log aggregator.
+
+- **OTEL_ENABLED=true**: JSON output (machine-parseable, for log pipelines)
+- **OTEL_ENABLED=false** (default): Human-readable console output
+
+### Fleet monitor TUI
+
+A terminal-based monitoring dashboard for real-time fleet health. Requires the optional `monitor` extra:
+
+```bash
+pip install fleet-mem[monitor]
+```
+
+**Setup:** Enable the stats socket in your fleet-mem server:
+
+```bash
+# In your .env or environment:
+FLEET_STATS_SOCK=~/.fleet-mem/stats.sock
+```
+
+**Launch the monitor:**
+
+```bash
+fleet-mem monitor
+# Or with a custom socket path:
+fleet-mem monitor --sock /path/to/stats.sock
+```
+
+The TUI connects via a Unix domain socket (0600 permissions — only the socket owner can connect, no network exposure). It shows:
+
+- **Agents tab**: All registered agents with project, worktree, branch, and status (green=active, yellow=idle, red=disconnected)
+- **Stats tab**: Aggregate metrics with sparklines for agents, locks, notifications, and memory over time
+- **Locks tab**: Active file locks by agent, project, patterns, and expiration
+- **Subscriptions tab**: Active file pattern subscriptions
+- **Notifications tab**: Recent cross-agent notifications
+- **Agent filtering**: Type to filter all tables by agent ID
+
+For Docker deployments, the socket is exposed via a named volume (`fleet-sock`). Mount it on the host to run the monitor:
+
+```bash
+docker compose up -d
+fleet-mem monitor --sock /var/lib/docker/volumes/fleet-mem_fleet-sock/_data/stats.sock
+```
 
 ### Fleet stats (no collector needed)
 
@@ -496,10 +559,12 @@ fleet_stats() -> {
 
 <br>
 
-### Fleet coordination (8 tools)
+### Fleet coordination (10 tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
+| `fleet_register` | `agent_id, project, worktree_path?, branch?` | Register an agent session (call once when starting work) |
+| `fleet_agents` | | List all registered agents with status (active/idle/disconnected) |
 | `lock_acquire` | `agent_id, project, file_patterns` | Declare files an agent is working on |
 | `lock_release` | `agent_id, project` | Release file locks |
 | `lock_query` | `project, file_path?` | Check who holds locks on which files |
@@ -528,8 +593,8 @@ fleet_stats() -> {
 - [ ] Go/Rust recursive AST splitting (promote to Tier 1)
 - [ ] Performance benchmarks on real codebases
 - [ ] MCP client configuration guides for Cursor, Windsurf
-- [ ] Agent workflow templates for common multi-agent patterns
-- [ ] Web dashboard for fleet status visualization
+- [ ] OTel Metrics API (histograms/counters for coordination)
+- [ ] Grafana dashboard JSON for coordination observability
 
 See [roadmap.md](roadmap.md) for the full plan.
 
