@@ -497,70 +497,19 @@ sequenceDiagram
     Note over TUI: Notifications tab: agent-a → agent-b
 ```
 
-### Quick start
+### Quick start — Fleet monitor TUI
+
+No external infrastructure needed. Install the monitor extra, set one env var, and go:
 
 ```bash
-# Enable tracing and point to your collector
-OTEL_ENABLED=true
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317  # Jaeger, Grafana Tempo, etc.
-```
-
-### What is traced
-
-**Data plane:**
-
-| Span | Key attributes |
-|------|---------------|
-| `fleet.index` | project, chunk_count |
-| `fleet.search` | query_hash (never raw query), result_count, cache_hits |
-| `fleet.memory.store` | content_hash, node_type |
-| `fleet.memory.search` | query_hash, result_count |
-
-**Coordination plane:**
-
-| Span | Key attributes |
-|------|---------------|
-| `fleet.lock.acquire` | agent_id, project, conflict_count, lock_id |
-| `fleet.lock.release` | agent_id, project, released_count |
-| `fleet.lock.query` | project, lock_count |
-| `fleet.lock.heartbeat` | agent_id, extended_count |
-| `fleet.memory.feed` | agent_id, since_minutes, result_count |
-| `fleet.memory.subscribe` | agent_id, project, subscription_count |
-| `fleet.memory.notifications` | agent_id, notification_count |
-| `fleet.memory.notify_subscribers` | author_agent_id, subscriber_count, notification_count |
-| `fleet.merge.impact` | project, file_count, conflict_count, subscriber_count |
-| `fleet.merge.notify` | project, branch, notification_count, stale_anchor_count |
-
-All content is hashed in span attributes for privacy. Raw code and queries never appear in traces. All coordination spans record errors with `StatusCode.ERROR` and exception details.
-
-### Structured logging
-
-fleet-mem uses [structlog](https://www.structlog.org/) with OpenTelemetry trace context injection. When a span is active, `trace_id` and `span_id` are automatically added to every log line — enabling log-to-trace correlation in Grafana, Datadog, or any log aggregator.
-
-- **OTEL_ENABLED=true**: JSON output (machine-parseable, for log pipelines)
-- **OTEL_ENABLED=false** (default): Human-readable console output
-
-### Fleet monitor TUI
-
-A terminal-based monitoring dashboard for real-time fleet health. Requires the optional `monitor` extra:
-
-```bash
+# 1. Install with monitor
 pip install fleet-mem[monitor]
-```
 
-**Setup:** Enable the stats socket in your fleet-mem server:
-
-```bash
-# In your .env or environment:
+# 2. Enable the stats socket (add to your .env or MCP server config)
 FLEET_STATS_SOCK=~/.fleet-mem/stats.sock
-```
 
-**Launch the monitor:**
-
-```bash
+# 3. Launch the monitor in a separate terminal
 fleet-mem monitor
-# Or with a custom socket path:
-fleet-mem monitor --sock /path/to/stats.sock
 ```
 
 The TUI connects via a Unix domain socket (0600 permissions — only the socket owner can connect, no network exposure). It shows:
@@ -578,6 +527,48 @@ For Docker deployments, the socket is exposed via a named volume (`fleet-sock`).
 docker compose up -d
 fleet-mem monitor --sock /var/lib/docker/volumes/fleet-mem_fleet-sock/_data/stats.sock
 ```
+
+### Advanced — OpenTelemetry tracing
+
+For teams with existing observability infrastructure (Jaeger, Grafana Tempo, Datadog), fleet-mem exports OpenTelemetry spans:
+
+```bash
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317  # any OTLP-compatible collector
+```
+
+**Data plane spans:**
+
+| Span | Key attributes |
+|------|---------------|
+| `fleet.index` | project, chunk_count |
+| `fleet.search` | query_hash (never raw query), result_count, cache_hits |
+| `fleet.memory.store` | content_hash, node_type |
+| `fleet.memory.search` | query_hash, result_count |
+
+**Coordination plane spans:**
+
+| Span | Key attributes |
+|------|---------------|
+| `fleet.lock.acquire` | agent_id, project, conflict_count, lock_id |
+| `fleet.lock.release` | agent_id, project, released_count |
+| `fleet.lock.query` | project, lock_count |
+| `fleet.lock.heartbeat` | agent_id, extended_count |
+| `fleet.memory.feed` | agent_id, since_minutes, result_count |
+| `fleet.memory.subscribe` | agent_id, project, subscription_count |
+| `fleet.memory.notifications` | agent_id, notification_count |
+| `fleet.memory.notify_subscribers` | author_agent_id, subscriber_count, notification_count |
+| `fleet.merge.impact` | project, file_count, conflict_count, subscriber_count |
+| `fleet.merge.notify` | project, branch, notification_count, stale_anchor_count |
+
+All content is hashed in span attributes for privacy. Raw code and queries never appear in traces.
+
+### Structured logging
+
+fleet-mem uses [structlog](https://www.structlog.org/) with OpenTelemetry trace context injection. When a span is active, `trace_id` and `span_id` are automatically added to every log line — enabling log-to-trace correlation in Grafana, Datadog, or any log aggregator.
+
+- **OTEL_ENABLED=true**: JSON output (machine-parseable, for log pipelines)
+- **OTEL_ENABLED=false** (default): Human-readable console output
 
 ### Fleet stats (no collector needed)
 
