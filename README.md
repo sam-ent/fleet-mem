@@ -172,7 +172,8 @@ graph LR
 | Language | Splitting method | Support level |
 |----------|-----------------|---------------|
 | Python, TypeScript, JavaScript | AST-aware | Tier 1: functions, classes, methods |
-| Go, Rust | AST-aware | Tier 2: functions, types, impl blocks |
+| Go | AST-aware | Tier 2: functions, methods, types |
+| Rust | AST-aware | Tier 2: functions, impl blocks, structs, enums, traits |
 | All other languages | Text-only | Fallback: sliding window (2500 chars, 300 overlap) |
 
 AST-aware splitting means search results are complete, meaningful code units. Text-only fallback still works but may return partial functions. Adding a new language requires defining its tree-sitter node types in `fleet_mem/splitter/ast_splitter.py` (contributions welcome).
@@ -401,7 +402,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `MEMORY_DB_PATH` | `~/.local/share/fleet-mem/memory.db` | Agent memory database |
 | `FLEET_DB_PATH` | `~/.local/share/fleet-mem/fleet.db` | Fleet coordination database |
 | `SYNC_INTERVAL` | `300` | Background code index sync (seconds) |
-| `MCP_SETTINGS_FILE` | `~/.claude/settings.json` | MCP client settings path |
+| `FILE_WATCHING` | `true` | Enable filesystem watching for near-instant sync |
 
 <br>
 
@@ -414,7 +415,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | **Lock acquire/release** | Immediate | Direct SQLite write |
 | **Notifications** | Immediate | Created on `memory_store` if subscriptions match |
 
-For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. File-watching is also available for near-instant sync — set `WATCH_ENABLED=true` to detect changes immediately without polling.
+For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. File-watching is also available for near-instant sync — set `FILE_WATCHING=true` (the default) to detect changes immediately without polling.
 
 <br>
 
@@ -607,7 +608,7 @@ fleet_stats() -> {
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `memory_store` | `node_type, content, agent_id?` | Store a memory with optional file anchor |
+| `memory_store` | `node_type, content, summary?, keywords?, file_path?, line_range?, source?, project_path?` | Store a memory with optional file anchor |
 | `memory_search` | `query, top_k?, node_type?` | Hybrid keyword + semantic memory search |
 | `memory_promote` | `memory_id, target_scope?` | Promote a project memory to global scope |
 | `stale_check` | `project_path?` | Find memories whose anchored files have changed |
@@ -631,7 +632,7 @@ fleet_stats() -> {
 
 <br>
 
-### Status and observability (5 tools)
+### Status and observability (7 tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -640,6 +641,8 @@ fleet_stats() -> {
 | `get_branches` | `path` | List indexed branches with chunk counts |
 | `cleanup_branch` | `path, branch` | Drop a branch overlay after merge |
 | `fleet_stats` | | Current metrics: chunks, memories, locks, cache hits, notifications |
+| `reconcile` | `path` | Remove ghost chunks whose source files no longer exist |
+| `clear_embedding_cache` | | Clear the embedding vector cache, forcing re-embedding on next use |
 
 ---
 

@@ -906,6 +906,188 @@ async def fleet_agents() -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Tool: lock_acquire
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    description="Declare files an agent is working on. Returns conflict info "
+    "if another agent holds overlapping locks."
+)
+async def lock_acquire(
+    agent_id: str,
+    project: str,
+    file_patterns: list[str],
+    branch: str = "main",
+    ttl_minutes: int = 60,
+) -> dict[str, Any]:
+    """Acquire file locks for an agent on a project."""
+    from .fleet.lock_registry import lock_acquire as _lock_acquire
+
+    cfg = _get_config()
+    return _lock_acquire(
+        db_path=cfg.fleet_db_path,
+        agent_id=agent_id,
+        project=project,
+        file_patterns=file_patterns,
+        branch=branch,
+        ttl_minutes=ttl_minutes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: lock_release
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Release all file locks for an agent on a project.")
+async def lock_release(
+    agent_id: str,
+    project: str,
+) -> dict[str, Any]:
+    """Release file locks."""
+    from .fleet.lock_registry import lock_release as _lock_release
+
+    cfg = _get_config()
+    return _lock_release(
+        db_path=cfg.fleet_db_path,
+        agent_id=agent_id,
+        project=project,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: lock_query
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Check who holds locks on which files in a project.")
+async def lock_query(
+    project: str,
+    file_path: str | None = None,
+) -> dict[str, Any]:
+    """List active locks, optionally filtered by file path."""
+    from .fleet.lock_registry import lock_query as _lock_query
+
+    cfg = _get_config()
+    return _lock_query(
+        db_path=cfg.fleet_db_path,
+        project=project,
+        file_path=file_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: merge_impact
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Preview which agents, memories, and branches are affected by a merge.")
+async def merge_impact(
+    project: str,
+    files: list[str],
+) -> dict[str, Any]:
+    """Read-only merge impact preview."""
+    from .fleet.merge_impact import merge_impact as _merge_impact
+
+    cfg = _get_config()
+    return _merge_impact(
+        project=project,
+        files=files,
+        fleet_db_path=cfg.fleet_db_path,
+        memory_db_path=cfg.memory_db_path,
+        chroma_path=Path(cfg.chroma_path),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: notify_merge
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Post-merge: notify affected agents and mark stale context.")
+async def notify_merge(
+    project: str,
+    branch: str,
+    merged_files: list[str],
+) -> dict[str, Any]:
+    """Notify subscribed agents after a merge and identify stale anchors."""
+    from .fleet.merge_impact import notify_merge as _notify_merge
+
+    cfg = _get_config()
+    return _notify_merge(
+        project=project,
+        branch=branch,
+        merged_files=merged_files,
+        fleet_db_path=cfg.fleet_db_path,
+        memory_db_path=cfg.memory_db_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: memory_feed
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Recent memories from other agents.")
+async def memory_feed(
+    agent_id: str | None = None,
+    since_minutes: int = 60,
+) -> list[dict[str, Any]]:
+    """Query recent memory entries from other agents."""
+    from .fleet.cross_agent import memory_feed as _memory_feed
+
+    cfg = _get_config()
+    return _memory_feed(
+        memory_db_path=cfg.memory_db_path,
+        agent_id=agent_id,
+        since_minutes=since_minutes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: memory_subscribe
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Subscribe to memories about specific file patterns.")
+async def memory_subscribe(
+    agent_id: str,
+    file_patterns: list[str],
+    project: str | None = None,
+) -> list[dict[str, Any]]:
+    """Create subscriptions for file pattern notifications."""
+    from .fleet.cross_agent import memory_subscribe as _memory_subscribe
+
+    cfg = _get_config()
+    return _memory_subscribe(
+        fleet_db_path=cfg.fleet_db_path,
+        agent_id=agent_id,
+        project=project or "default",
+        file_patterns=file_patterns,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool: memory_notifications
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(description="Check for new relevant memories from other agents.")
+async def memory_notifications(
+    agent_id: str,
+) -> list[dict[str, Any]]:
+    """Return unread notifications for an agent, marking them as read."""
+    from .fleet.cross_agent import memory_notifications as _memory_notifications
+
+    cfg = _get_config()
+    return _memory_notifications(
+        fleet_db_path=cfg.fleet_db_path,
+        agent_id=agent_id,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tool: get_fleet_stats
 # ---------------------------------------------------------------------------
 
