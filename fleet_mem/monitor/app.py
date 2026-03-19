@@ -20,6 +20,7 @@ from textual.widgets import (
 )
 
 from fleet_mem.monitor.client import fetch_stats
+from fleet_mem import __version__ as monitor_version
 
 # Max history for sparklines
 _HISTORY_LEN = 60
@@ -55,7 +56,7 @@ class StatsPanel(Static):
 class FleetMonitorApp(App):
     """btop-style TUI for fleet-mem coordination health."""
 
-    TITLE = "fleet-mem monitor"
+    TITLE = f"fleet-mem monitor v{monitor_version}"
     CSS = """
     Screen {
         background: $surface;
@@ -225,6 +226,7 @@ class FleetMonitorApp(App):
         # Stats summary
         try:
             summary = self.query_one("#stats-summary", Label)
+            server_ver = stats.get("server_version", "unknown")
             summary.update(
                 f"Agents: [bold green]{stats.get('active_agents', 0)}[/]  "
                 f"Chunks: [bold cyan]{stats.get('total_chunks', 0)}[/]  "
@@ -233,7 +235,8 @@ class FleetMonitorApp(App):
                 f"Subs: [bold cyan]{stats.get('subscriptions', 0)}[/]  "
                 f"Pending: [bold yellow]"
                 f"{stats.get('pending_notifications', 0)}[/]  "
-                f"Cache: [bold cyan]{stats.get('cached_embeddings', 0)}[/]"
+                f"Cache: [bold cyan]{stats.get('cached_embeddings', 0)}[/]  "
+                f"Server: [bold magenta]v{server_ver}[/]"
             )
         except Exception:
             pass
