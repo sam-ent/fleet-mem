@@ -14,7 +14,6 @@ from textual.widgets import (
     Input,
     Label,
     Sparkline,
-    Static,
     TabbedContent,
     TabPane,
 )
@@ -33,7 +32,7 @@ _STATUS_COLORS = {
 }
 
 
-class StatsPanel(Static):
+class StatsPanel(Container):
     """Displays aggregate fleet statistics."""
 
     def compose(self) -> ComposeResult:
