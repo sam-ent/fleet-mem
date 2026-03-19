@@ -1326,11 +1326,83 @@ def _register_agent(config) -> None:
         branch,
     )
 
+    # Auto-coordination: lock and subscribe to files modified on this branch
+    if branch and branch not in ("main", "master"):
+        _auto_coordinate(config, project, branch)
+
+
+def _auto_coordinate(config, project: str, branch: str) -> None:
+    """Auto-lock and auto-subscribe to files modified on this branch vs main."""
+    import subprocess
+
+    from .fleet.cross_agent import memory_subscribe
+    from .fleet.lock_registry import lock_acquire
+
+    # Detect which files this branch has changed relative to main
+    modified_files: list[str] = []
+    for base in ("main", "master"):
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--name-only", f"{base}...HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                modified_files = [f for f in result.stdout.strip().splitlines() if f]
+                break
+        except Exception:
+            continue
+
+    if not modified_files:
+        logger.info("Auto-coordination: no modified files detected on branch %s", branch)
+        return
+
+    logger.info(
+        "Auto-coordination: %d files on branch %s — locking and subscribing",
+        len(modified_files),
+        branch,
+    )
+
+    # Auto-lock modified files
+    try:
+        lock_result = lock_acquire(
+            db_path=config.fleet_db_path,
+            agent_id=_agent_id,
+            project=project,
+            file_patterns=modified_files,
+            branch=branch,
+            ttl_minutes=480,  # 8 hours — extended by heartbeat
+        )
+        if lock_result["status"] == "conflict":
+            logger.warning(
+                "Auto-lock conflict with %s on patterns %s",
+                lock_result["conflicting_agent"],
+                lock_result["conflicting_patterns"],
+            )
+        else:
+            logger.info("Auto-lock acquired: %s", lock_result.get("lock_id", ""))
+    except Exception:
+        logger.exception("Auto-lock failed")
+
+    # Auto-subscribe to notifications about these files
+    try:
+        memory_subscribe(
+            fleet_db_path=config.fleet_db_path,
+            agent_id=_agent_id,
+            project=project,
+            file_patterns=modified_files,
+        )
+        logger.info("Auto-subscribed to %d file patterns", len(modified_files))
+    except Exception:
+        logger.exception("Auto-subscribe failed")
+
 
 def _start_heartbeat_thread(config) -> None:
-    """Background thread that heartbeats the agent session."""
+    """Background thread that heartbeats the agent session and extends locks."""
     import time
 
+    from .fleet.lock_registry import lock_heartbeat
     from .fleet.sessions import heartbeat_agent
 
     def _loop():
@@ -1339,6 +1411,10 @@ def _start_heartbeat_thread(config) -> None:
             if _agent_id:
                 try:
                     heartbeat_agent(config.fleet_db_path, _agent_id)
+                except Exception:
+                    pass
+                try:
+                    lock_heartbeat(config.fleet_db_path, _agent_id, ttl_minutes=480)
                 except Exception:
                     pass
 

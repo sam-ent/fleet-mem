@@ -7,11 +7,14 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+import structlog
 from opentelemetry.trace import StatusCode
 
 from fleet_mem.fleet.cross_agent import _notify_subscribers
 from fleet_mem.fleet.lock_registry import lock_query
 from fleet_mem.observability import get_tracer
+
+logger = structlog.get_logger(__name__)
 
 
 def _now_iso() -> str:
@@ -200,12 +203,36 @@ def notify_merge(
                 finally:
                     mem_conn.close()
 
+            # Release locks held on the merged branch
+            released_count = 0
+            try:
+                conn = sqlite3.connect(str(fleet_db_path))
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    "DELETE FROM agent_locks "
+                    "WHERE project = ? AND branch = ? AND status = 'active'",
+                    (project, branch),
+                )
+                released_count = cursor.rowcount
+                conn.commit()
+                conn.close()
+                if released_count:
+                    logger.info(
+                        "Released %d lock(s) for merged branch %s",
+                        released_count,
+                        branch,
+                    )
+            except Exception:
+                pass
+
             span.set_attribute("fleet.notification_count", notifications_created)
             span.set_attribute("fleet.stale_anchor_count", len(stale_anchors))
+            span.set_attribute("fleet.released_locks", released_count)
 
             return {
                 "notifications_created": notifications_created,
                 "stale_anchors": stale_anchors,
+                "released_locks": released_count,
             }
         except Exception as exc:
             span.set_status(StatusCode.ERROR, str(exc))

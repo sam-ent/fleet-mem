@@ -178,6 +178,169 @@ class TestProjectNameFromPath:
 
 
 # ---------------------------------------------------------------------------
+# _auto_coordinate
+# ---------------------------------------------------------------------------
+
+
+class TestAutoCoordinate:
+    def test_locks_and_subscribes_on_branch(self, tmp_path):
+        """Auto-coordination acquires locks and subscriptions for modified files."""
+        fleet_db = tmp_path / "fleet.db"
+        cfg = MagicMock()
+        cfg.fleet_db_path = fleet_db
+
+        import fleet_mem.server
+
+        old_id = fleet_mem.server._agent_id
+        fleet_mem.server._agent_id = "test-agent-auto"
+        try:
+            # Mock subprocess.run inside _auto_coordinate to return modified files
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "app.py\nlib/utils.py\n"
+
+            with patch("subprocess.run", return_value=mock_result):
+                from fleet_mem.server import _auto_coordinate
+
+                _auto_coordinate(cfg, "myrepo", "feat/test")
+        finally:
+            fleet_mem.server._agent_id = old_id
+
+        # Verify lock was created
+        import json
+        import sqlite3
+
+        conn = sqlite3.connect(str(fleet_db))
+        conn.row_factory = sqlite3.Row
+        locks = conn.execute("SELECT * FROM agent_locks WHERE status = 'active'").fetchall()
+        assert len(locks) == 1
+        assert locks[0]["agent_id"] == "test-agent-auto"
+        assert json.loads(locks[0]["file_patterns"]) == ["app.py", "lib/utils.py"]
+        assert locks[0]["branch"] == "feat/test"
+
+        # Verify subscriptions were created
+        subs = conn.execute("SELECT * FROM subscriptions ORDER BY file_pattern").fetchall()
+        assert len(subs) == 2
+        assert subs[0]["file_pattern"] == "app.py"
+        assert subs[1]["file_pattern"] == "lib/utils.py"
+        conn.close()
+
+    def test_skips_on_main_branch(self, tmp_path):
+        """No auto-coordination on main/master branches."""
+        cfg = MagicMock()
+        cfg.fleet_db_path = tmp_path / "fleet.db"
+
+        mock_branch = MagicMock()
+        mock_branch.returncode = 0
+        mock_branch.stdout = "main\n"
+
+        with (
+            patch("fleet_mem.server._repo_root_from_git", return_value=tmp_path),
+            patch("subprocess.run", return_value=mock_branch),
+            patch("fleet_mem.server._auto_coordinate") as mock_auto,
+        ):
+            from fleet_mem.server import _register_agent
+
+            _register_agent(cfg)
+
+        mock_auto.assert_not_called()
+
+    def test_no_modified_files_skips(self, tmp_path):
+        """No locks/subs when branch has no diff from main."""
+        fleet_db = tmp_path / "fleet.db"
+        cfg = MagicMock()
+        cfg.fleet_db_path = fleet_db
+
+        import fleet_mem.server
+
+        old_id = fleet_mem.server._agent_id
+        fleet_mem.server._agent_id = "test-agent-empty"
+        try:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+
+            with patch("subprocess.run", return_value=mock_result):
+                from fleet_mem.server import _auto_coordinate
+
+                _auto_coordinate(cfg, "myrepo", "feat/no-changes")
+        finally:
+            fleet_mem.server._agent_id = old_id
+
+        # No DB file should be created (no lock/sub calls)
+        assert not fleet_db.exists()
+
+
+# ---------------------------------------------------------------------------
+# notify_merge lock release
+# ---------------------------------------------------------------------------
+
+
+class TestNotifyMergeReleasesLocks:
+    def test_releases_locks_for_merged_branch(self, tmp_path):
+        """notify_merge should release locks on the merged branch."""
+        import json
+        import sqlite3
+
+        fleet_db = tmp_path / "fleet.db"
+        memory_db = tmp_path / "memory.db"
+
+        # Set up a lock
+        conn = sqlite3.connect(str(fleet_db))
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_locks ("
+            "id TEXT PRIMARY KEY, agent_id TEXT, project TEXT, "
+            "file_patterns TEXT, branch TEXT, acquired_at TEXT, "
+            "expires_at TEXT, status TEXT DEFAULT 'active')"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS subscriptions ("
+            "id TEXT PRIMARY KEY, agent_id TEXT, project TEXT, "
+            "file_pattern TEXT, created_at TEXT)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS notifications ("
+            "id TEXT PRIMARY KEY, subscriber_agent_id TEXT, "
+            "memory_id TEXT, memory_summary TEXT, file_path TEXT, "
+            "author_agent_id TEXT, created_at TEXT, read_at TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO agent_locks VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
+            (
+                "lock1",
+                "agent-abc",
+                "myrepo",
+                json.dumps(["app.py"]),
+                "feat/test",
+                "2026-01-01T00:00:00",
+                "2026-12-31T00:00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        from fleet_mem.fleet.merge_impact import notify_merge
+
+        result = notify_merge(
+            project="myrepo",
+            branch="feat/test",
+            merged_files=["app.py"],
+            fleet_db_path=fleet_db,
+            memory_db_path=memory_db,
+        )
+
+        assert result["released_locks"] == 1
+
+        # Verify lock is gone
+        conn = sqlite3.connect(str(fleet_db))
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM agent_locks WHERE status = 'active'"
+        ).fetchone()[0]
+        assert remaining == 0
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # index_codebase
 # ---------------------------------------------------------------------------
 
