@@ -341,6 +341,92 @@ class TestNotifyMergeReleasesLocks:
 
 
 # ---------------------------------------------------------------------------
+# Lock UPSERT deduplication
+# ---------------------------------------------------------------------------
+
+
+class TestLockUpsert:
+    def test_same_agent_upserts_not_duplicates(self, tmp_path):
+        """Acquiring a lock twice for same agent+project updates, not duplicates."""
+        import json
+        import sqlite3
+
+        from fleet_mem.fleet.lock_registry import lock_acquire
+
+        db = tmp_path / "fleet.db"
+        r1 = lock_acquire(db, "agent-1", "proj", ["a.py"], "feat/x")
+        assert r1["status"] == "acquired"
+        r2 = lock_acquire(db, "agent-1", "proj", ["b.py"], "feat/y")
+        assert r2["status"] == "acquired"
+
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM agent_locks WHERE agent_id = 'agent-1'").fetchall()
+        assert len(rows) == 1  # one row, not two
+        assert json.loads(rows[0]["file_patterns"]) == ["b.py"]
+        assert rows[0]["branch"] == "feat/y"
+        conn.close()
+
+    def test_different_agents_still_conflict(self, tmp_path):
+        """Two different agents on overlapping files still get conflict."""
+        from fleet_mem.fleet.lock_registry import lock_acquire
+
+        db = tmp_path / "fleet.db"
+        r1 = lock_acquire(db, "agent-1", "proj", ["src/app.py"], "feat/x")
+        assert r1["status"] == "acquired"
+        r2 = lock_acquire(db, "agent-2", "proj", ["src/app.py"], "feat/y")
+        assert r2["status"] == "conflict"
+        assert r2["conflicting_agent"] == "agent-1"
+
+
+class TestLockSchemaMigration:
+    def test_migrates_old_schema(self, tmp_path):
+        """Old schema without UNIQUE gets migrated, duplicates are deduped."""
+        import json
+        import sqlite3
+
+        db = tmp_path / "fleet.db"
+        conn = sqlite3.connect(str(db))
+        # Create old schema (no UNIQUE constraint)
+        conn.execute(
+            "CREATE TABLE agent_locks ("
+            "id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, "
+            "project TEXT NOT NULL, file_patterns TEXT NOT NULL, "
+            "branch TEXT NOT NULL, acquired_at TEXT NOT NULL, "
+            "expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active')"
+        )
+        # Insert duplicates
+        conn.execute(
+            "INSERT INTO agent_locks VALUES "
+            "('old1','agent-1','proj','[\"a.py\"]','b1','2026-01-01T00:00:00',"
+            "'2099-01-01T00:00:00','active')"
+        )
+        conn.execute(
+            "INSERT INTO agent_locks VALUES "
+            "('old2','agent-1','proj','[\"b.py\"]','b2','2026-01-02T00:00:00',"
+            "'2099-01-01T00:00:00','active')"
+        )
+        conn.commit()
+        conn.close()
+
+        # Opening a connection triggers migration
+        from fleet_mem.fleet.lock_registry import _connect
+
+        conn = _connect(db)
+        rows = conn.execute("SELECT * FROM agent_locks WHERE agent_id = 'agent-1'").fetchall()
+        assert len(rows) == 1
+        # Should keep the most recent (acquired_at 2026-01-02)
+        assert json.loads(rows[0]["file_patterns"]) == ["b.py"]
+
+        # Verify UNIQUE constraint exists
+        schema = conn.execute("SELECT sql FROM sqlite_master WHERE name='agent_locks'").fetchone()[
+            "sql"
+        ]
+        assert "UNIQUE" in schema
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # index_codebase
 # ---------------------------------------------------------------------------
 

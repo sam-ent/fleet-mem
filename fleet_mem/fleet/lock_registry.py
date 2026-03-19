@@ -13,7 +13,9 @@ from opentelemetry.trace import StatusCode
 
 from fleet_mem.observability import get_tracer, hash_content
 
-_CREATE_TABLE = """
+_SCHEMA_VERSION = 2  # bump when schema changes
+
+_CREATE_TABLE_V2 = """
 CREATE TABLE IF NOT EXISTS agent_locks (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL,
@@ -22,7 +24,15 @@ CREATE TABLE IF NOT EXISTS agent_locks (
     branch TEXT NOT NULL,
     acquired_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active'
+    status TEXT NOT NULL DEFAULT 'active',
+    UNIQUE (agent_id, project)
+)
+"""
+
+_CREATE_VERSION_TABLE = """
+CREATE TABLE IF NOT EXISTS schema_version (
+    table_name TEXT PRIMARY KEY,
+    version INTEGER NOT NULL
 )
 """
 
@@ -38,9 +48,71 @@ def _iso(dt: datetime.datetime) -> str:
 def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    conn.execute(_CREATE_TABLE)
-    conn.commit()
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Ensure agent_locks has the v2 schema with UNIQUE(agent_id, project)."""
+    conn.execute(_CREATE_VERSION_TABLE)
+    row = conn.execute(
+        "SELECT version FROM schema_version WHERE table_name = 'agent_locks'"
+    ).fetchone()
+    current = row["version"] if row else 0
+
+    if current >= _SCHEMA_VERSION:
+        return
+
+    # Check if old table exists (without UNIQUE constraint)
+    old = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_locks'"
+    ).fetchone()
+
+    if old and "UNIQUE" not in old["sql"]:
+        # Migrate: create new table, copy deduped data, swap
+        conn.executescript(
+            """
+            CREATE TABLE agent_locks_v2 (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                project TEXT NOT NULL,
+                file_patterns TEXT NOT NULL,
+                branch TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                UNIQUE (agent_id, project)
+            );
+
+            INSERT OR REPLACE INTO agent_locks_v2
+                (id, agent_id, project, file_patterns, branch,
+                 acquired_at, expires_at, status)
+            SELECT id, agent_id, project, file_patterns, branch,
+                   acquired_at, expires_at, status
+            FROM (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY agent_id, project
+                        ORDER BY acquired_at DESC
+                    ) AS rn
+                FROM agent_locks
+            )
+            WHERE rn = 1;
+
+            DROP TABLE agent_locks;
+            ALTER TABLE agent_locks_v2 RENAME TO agent_locks;
+            """
+        )
+    elif not old:
+        conn.execute(_CREATE_TABLE_V2)
+
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_version (table_name, version) VALUES (?, ?)",
+        ("agent_locks", _SCHEMA_VERSION),
+    )
+    conn.commit()
 
 
 def _cleanup_expired(conn: sqlite3.Connection) -> None:
@@ -56,7 +128,6 @@ def _patterns_overlap(existing_patterns: list[str], new_patterns: list[str]) -> 
     """Check if any new pattern overlaps with any existing pattern via fnmatch."""
     for ep in existing_patterns:
         for np in new_patterns:
-            # Check both directions: either could be more specific
             if fnmatch.fnmatch(np, ep) or fnmatch.fnmatch(ep, np):
                 return True
     return False
@@ -106,7 +177,11 @@ def lock_acquire(
                     "INSERT INTO agent_locks "
                     "(id, agent_id, project, file_patterns, "
                     "branch, acquired_at, expires_at, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'active')",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'active') "
+                    "ON CONFLICT(agent_id, project) DO UPDATE SET "
+                    "id=excluded.id, file_patterns=excluded.file_patterns, "
+                    "branch=excluded.branch, acquired_at=excluded.acquired_at, "
+                    "expires_at=excluded.expires_at, status='active'",
                     (
                         lock_id,
                         agent_id,
@@ -173,7 +248,11 @@ def lock_query(db_path: Path, project: str, file_path: str | None = None) -> dic
                 for row in rows:
                     patterns = json.loads(row["file_patterns"])
                     if file_path is not None:
-                        if not any(fnmatch.fnmatch(file_path, p) for p in patterns):
+                        # Bidirectional match: file matches pattern OR pattern matches file
+                        if not any(
+                            fnmatch.fnmatch(file_path, p) or fnmatch.fnmatch(p, file_path)
+                            for p in patterns
+                        ):
                             continue
                     locks.append(
                         {

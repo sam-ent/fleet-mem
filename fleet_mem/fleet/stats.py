@@ -101,7 +101,9 @@ def get_fleet_stats(
                 connected_at TEXT NOT NULL, last_activity_at TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active')"""
         )
-        stats["active_locks"] = conn.execute("SELECT COUNT(*) FROM agent_locks").fetchone()[0]
+        stats["active_locks"] = conn.execute(
+            "SELECT COUNT(*) FROM agent_locks WHERE status = 'active'"
+        ).fetchone()[0]
         stats["subscriptions"] = conn.execute("SELECT COUNT(*) FROM subscriptions").fetchone()[0]
         stats["pending_notifications"] = conn.execute(
             "SELECT COUNT(*) FROM notifications WHERE read_at IS NULL"
