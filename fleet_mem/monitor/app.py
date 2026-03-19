@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 from collections import deque
 
 from textual.app import App, ComposeResult
@@ -20,8 +19,8 @@ from textual.widgets import (
     TabPane,
 )
 
-from fleet_mem.monitor.client import fetch_stats
 from fleet_mem import __version__ as monitor_version
+from fleet_mem.monitor.client import fetch_stats
 
 # Max history for sparklines
 _HISTORY_LEN = 60
