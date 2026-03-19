@@ -1,3 +1,3 @@
 """Fleet-Mem — shared code intelligence for agent fleets."""
 
-__version__ = "0.5.2"
+__version__ = "0.5.3"

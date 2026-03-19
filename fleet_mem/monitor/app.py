@@ -20,7 +20,12 @@ from textual.widgets import (
 )
 
 from fleet_mem.monitor.client import fetch_stats
-from fleet_mem import __version__ as monitor_version
+import importlib.metadata
+
+try:
+    monitor_version = importlib.metadata.version("fleet-mem")
+except Exception:
+    monitor_version = "unknown"
 
 # Max history for sparklines
 _HISTORY_LEN = 60

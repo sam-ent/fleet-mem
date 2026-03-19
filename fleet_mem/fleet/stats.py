@@ -17,9 +17,14 @@ def get_fleet_stats(
     When *detail* is True, include individual lock, subscription, and
     notification rows (for the TUI monitor). Otherwise return counts only.
     """
-    from fleet_mem import __version__
+    import importlib.metadata
 
-    stats: dict = {"server_version": __version__}
+    try:
+        ver = importlib.metadata.version("fleet-mem")
+    except Exception:
+        ver = "unknown"
+
+    stats: dict = {"server_version": ver}
 
     # ChromaDB collection stats
     try:
