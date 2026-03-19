@@ -28,8 +28,53 @@ _index_status: dict[str, dict[str, Any]] = {}
 _status_lock = threading.Lock()
 
 
+def _repo_root_from_git(cwd: Path) -> Path | None:
+    """Return the true repo root, even inside a git worktree.
+
+    Uses ``git rev-parse --git-common-dir`` (Git 2.5+) which returns the
+    shared ``.git`` directory.  Resolving its parent gives the canonical
+    repo root regardless of whether *cwd* is a worktree or the main
+    checkout.  Returns ``None`` when *cwd* is not inside a git repo.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(cwd),
+        )
+        if result.returncode == 0:
+            git_common = result.stdout.strip()
+            return (cwd / git_common).resolve().parent
+    except Exception:
+        pass
+
+    # Fallback: --show-toplevel (correct for non-worktree repos)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(cwd),
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+
+    return None
+
+
 def _project_name_from_path(path: str) -> str:
-    return Path(path).resolve().name
+    resolved = Path(path).resolve()
+    root = _repo_root_from_git(resolved)
+    if root is not None:
+        return root.name
+    return resolved.name
 
 
 # ---------------------------------------------------------------------------
@@ -1246,23 +1291,13 @@ def _register_agent(config) -> None:
     from .fleet.sessions import register_agent
 
     cwd = Path.cwd().resolve()
-    project = cwd.name
     worktree = str(cwd)
     branch = None
     _agent_id = f"agent-{uuid.uuid4().hex[:12]}"
 
-    # Detect git toplevel for project name
-    try:
-        toplevel = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if toplevel.returncode == 0:
-            project = Path(toplevel.stdout.strip()).name
-    except Exception:
-        pass
+    # Detect true repo root (worktree-aware)
+    root = _repo_root_from_git(cwd)
+    project = root.name if root is not None else cwd.name
 
     # Detect git branch
     try:

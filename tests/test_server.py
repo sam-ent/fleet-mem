@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -88,6 +89,92 @@ def _patch_deps(mock_config, mock_db, mock_embedder):
             "embedder": mock_embedder,
             "memory": mock_mem,
         }
+
+
+# ---------------------------------------------------------------------------
+# _repo_root_from_git / _project_name_from_path (worktree awareness)
+# ---------------------------------------------------------------------------
+
+
+def _git_init_with_commit(repo_path):
+    """Initialise a git repo with one commit (works on CI without global config)."""
+    subprocess.run(["git", "init", str(repo_path)], capture_output=True, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@test",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
+        capture_output=True,
+        cwd=str(repo_path),
+        check=True,
+    )
+
+
+class TestRepoRootFromGit:
+    def test_returns_repo_root_in_normal_repo(self, tmp_path):
+        """In a standard git repo, returns the repo root."""
+        subprocess.run(["git", "init", str(tmp_path)], capture_output=True, check=True)
+        from fleet_mem.server import _repo_root_from_git
+
+        root = _repo_root_from_git(tmp_path)
+        assert root == tmp_path
+
+    def test_returns_main_root_from_worktree(self, tmp_path):
+        """In a git worktree, returns the main repo root, not the worktree dir."""
+        main = tmp_path / "main-repo"
+        main.mkdir()
+        _git_init_with_commit(main)
+        wt = tmp_path / "my-worktree"
+        subprocess.run(
+            ["git", "worktree", "add", str(wt), "-b", "wt-branch"],
+            capture_output=True,
+            cwd=str(main),
+            check=True,
+        )
+        from fleet_mem.server import _repo_root_from_git
+
+        root = _repo_root_from_git(wt)
+        assert root == main.resolve()
+
+    def test_returns_none_for_non_git_dir(self, tmp_path):
+        """Outside a git repo, returns None."""
+        from fleet_mem.server import _repo_root_from_git
+
+        root = _repo_root_from_git(tmp_path)
+        assert root is None
+
+
+class TestProjectNameFromPath:
+    def test_non_git_directory_uses_basename(self, tmp_path):
+        """Falls back to directory basename when not in a git repo."""
+        target = tmp_path / "my-project"
+        target.mkdir()
+        from fleet_mem.server import _project_name_from_path
+
+        assert _project_name_from_path(str(target)) == "my-project"
+
+    def test_worktree_uses_main_repo_name(self, tmp_path):
+        """Worktree path resolves to the main repo's name."""
+        main = tmp_path / "fleet-mem"
+        main.mkdir()
+        _git_init_with_commit(main)
+        wt = tmp_path / "fleet-mem-fix-foo"
+        subprocess.run(
+            ["git", "worktree", "add", str(wt), "-b", "fix-foo"],
+            capture_output=True,
+            cwd=str(main),
+            check=True,
+        )
+        from fleet_mem.server import _project_name_from_path
+
+        assert _project_name_from_path(str(wt)) == "fleet-mem"
 
 
 # ---------------------------------------------------------------------------
