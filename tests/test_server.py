@@ -96,6 +96,27 @@ def _patch_deps(mock_config, mock_db, mock_embedder):
 # ---------------------------------------------------------------------------
 
 
+def _git_init_with_commit(repo_path):
+    """Initialise a git repo with one commit (works on CI without global config)."""
+    subprocess.run(["git", "init", str(repo_path)], capture_output=True, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@test",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
+        capture_output=True,
+        cwd=str(repo_path),
+        check=True,
+    )
+
+
 class TestRepoRootFromGit:
     def test_returns_repo_root_in_normal_repo(self, tmp_path):
         """In a standard git repo, returns the repo root."""
@@ -109,13 +130,7 @@ class TestRepoRootFromGit:
         """In a git worktree, returns the main repo root, not the worktree dir."""
         main = tmp_path / "main-repo"
         main.mkdir()
-        subprocess.run(["git", "init", str(main)], capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "init"],
-            capture_output=True,
-            cwd=str(main),
-            check=True,
-        )
+        _git_init_with_commit(main)
         wt = tmp_path / "my-worktree"
         subprocess.run(
             ["git", "worktree", "add", str(wt), "-b", "wt-branch"],
@@ -149,13 +164,7 @@ class TestProjectNameFromPath:
         """Worktree path resolves to the main repo's name."""
         main = tmp_path / "fleet-mem"
         main.mkdir()
-        subprocess.run(["git", "init", str(main)], capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "init"],
-            capture_output=True,
-            cwd=str(main),
-            check=True,
-        )
+        _git_init_with_commit(main)
         wt = tmp_path / "fleet-mem-fix-foo"
         subprocess.run(
             ["git", "worktree", "add", str(wt), "-b", "fix-foo"],
