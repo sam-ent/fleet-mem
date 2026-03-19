@@ -51,6 +51,10 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
     _migrate(conn)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_locks_project_status ON agent_locks(project, status)"
+    )
+    conn.commit()
     return conn
 
 

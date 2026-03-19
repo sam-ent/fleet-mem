@@ -39,7 +39,10 @@ def _iso(dt: datetime.datetime) -> str:
 def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(_CREATE_TABLE)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_status ON agent_sessions(status)")
     conn.commit()
     return conn
 

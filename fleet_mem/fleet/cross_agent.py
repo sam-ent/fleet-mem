@@ -41,7 +41,15 @@ def _now_iso() -> str:
 def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(_CREATE_TABLES)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_subs_project ON subscriptions(project)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notifs_agent_unread "
+        "ON notifications(subscriber_agent_id, read_at)"
+    )
+    conn.commit()
     return conn
 
 
