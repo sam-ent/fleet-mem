@@ -17,7 +17,14 @@ def get_fleet_stats(
     When *detail* is True, include individual lock, subscription, and
     notification rows (for the TUI monitor). Otherwise return counts only.
     """
-    stats: dict = {}
+    import importlib.metadata
+
+    try:
+        ver = importlib.metadata.version("fleet-mem")
+    except Exception:
+        ver = "unknown"
+
+    stats: dict = {"server_version": ver}
 
     # ChromaDB collection stats
     try:
@@ -37,6 +44,24 @@ def get_fleet_stats(
     # Memory stats
     try:
         conn = sqlite3.connect(str(memory_db_path))
+        # Ensure tables exist
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS memory_nodes (
+                id TEXT PRIMARY KEY, node_type TEXT NOT NULL,
+                content TEXT NOT NULL, summary TEXT, keywords TEXT,
+                file_path TEXT, line_range TEXT, source TEXT NOT NULL DEFAULT 'agent',
+                project_path TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                agent_id TEXT)"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS file_anchors (
+                id TEXT PRIMARY KEY, memory_id TEXT NOT NULL,
+                file_path TEXT NOT NULL, file_hash TEXT NOT NULL,
+                line_start INTEGER, line_end INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')))"""
+        )
         stats["memory_nodes"] = conn.execute("SELECT COUNT(*) FROM memory_nodes").fetchone()[0]
         stats["file_anchors"] = conn.execute("SELECT COUNT(*) FROM file_anchors").fetchone()[0]
         conn.close()
@@ -48,6 +73,34 @@ def get_fleet_stats(
     try:
         conn = sqlite3.connect(str(fleet_db_path))
         conn.row_factory = sqlite3.Row
+        # Ensure tables exist
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS agent_locks (
+                id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
+                project TEXT NOT NULL, file_patterns TEXT NOT NULL,
+                branch TEXT NOT NULL, acquired_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active')"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS subscriptions (
+                id TEXT PRIMARY KEY, agent_id TEXT NOT NULL,
+                project TEXT NOT NULL, file_pattern TEXT NOT NULL,
+                created_at TEXT NOT NULL)"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY, subscriber_agent_id TEXT NOT NULL,
+                memory_id TEXT NOT NULL, memory_summary TEXT NOT NULL,
+                file_path TEXT NOT NULL, author_agent_id TEXT NOT NULL,
+                created_at TEXT NOT NULL, read_at TEXT)"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS agent_sessions (
+                agent_id TEXT PRIMARY KEY, project TEXT NOT NULL,
+                worktree_path TEXT, branch TEXT,
+                connected_at TEXT NOT NULL, last_activity_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active')"""
+        )
         stats["active_locks"] = conn.execute("SELECT COUNT(*) FROM agent_locks").fetchone()[0]
         stats["subscriptions"] = conn.execute("SELECT COUNT(*) FROM subscriptions").fetchone()[0]
         stats["pending_notifications"] = conn.execute(
@@ -119,14 +172,6 @@ def get_fleet_stats(
     try:
         conn = sqlite3.connect(str(fleet_db_path))
         conn.row_factory = sqlite3.Row
-        # Ensure table exists (may not if sessions module hasn't been used yet)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS agent_sessions ("
-            "agent_id TEXT PRIMARY KEY, project TEXT NOT NULL, "
-            "worktree_path TEXT, branch TEXT, "
-            "connected_at TEXT NOT NULL, last_activity_at TEXT NOT NULL, "
-            "status TEXT NOT NULL DEFAULT 'active')"
-        )
         stats["active_agents"] = conn.execute(
             "SELECT COUNT(*) FROM agent_sessions WHERE status = 'active'"
         ).fetchone()[0]
