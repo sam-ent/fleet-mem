@@ -19,10 +19,17 @@ def _create_memory_db(path: Path):
 
 def _create_fleet_db(path: Path):
     conn = sqlite3.connect(str(path))
-    conn.execute("CREATE TABLE agent_locks (id TEXT PRIMARY KEY, agent_id TEXT, project TEXT)")
+    conn.execute(
+        "CREATE TABLE agent_locks (id TEXT PRIMARY KEY, agent_id TEXT, "
+        "project TEXT, file_patterns TEXT, branch TEXT, acquired_at TEXT, "
+        "expires_at TEXT, status TEXT DEFAULT 'active', UNIQUE(agent_id, project))"
+    )
     conn.execute("CREATE TABLE subscriptions (id TEXT PRIMARY KEY, agent_id TEXT, pattern TEXT)")
     conn.execute("CREATE TABLE notifications (id TEXT PRIMARY KEY, agent_id TEXT, read_at TEXT)")
-    conn.execute("INSERT INTO agent_locks VALUES ('l1', 'alpha', 'proj')")
+    conn.execute(
+        "INSERT INTO agent_locks VALUES "
+        "('l1', 'alpha', 'proj', '[]', 'main', '2026-01-01', '2099-01-01', 'active')"
+    )
     conn.execute("INSERT INTO subscriptions VALUES ('s1', 'alpha', '*.py')")
     conn.execute("INSERT INTO notifications VALUES ('n1', 'alpha', NULL)")
     conn.execute("INSERT INTO notifications VALUES ('n2', 'alpha', '2024-01-01')")

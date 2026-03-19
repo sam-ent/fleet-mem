@@ -833,6 +833,7 @@ async def memory_store(
         span.set_attribute("fleet.content_hash", hash_content(content))
         span.set_attribute("fleet.node_type", node_type)
         mem = _get_memory()
+        cfg = _get_config()
         node_id = mem.memory_store(
             node_type=node_type,
             content=content,
@@ -842,6 +843,8 @@ async def memory_store(
             line_range=line_range,
             source=source,
             project_path=project_path,
+            agent_id=_agent_id,
+            fleet_db_path=str(cfg.fleet_db_path),
         )
         return {"id": node_id, "status": "stored"}
 
