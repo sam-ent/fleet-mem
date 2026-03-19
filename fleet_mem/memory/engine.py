@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS file_anchors (
     file_hash TEXT NOT NULL,
     line_start INTEGER,
     line_end INTEGER,
+    is_stale INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -75,12 +76,22 @@ class MemoryEngine:
         cur = self.conn.executescript(_SCHEMA_SQL)
         cur.close()
         self._migrate_agent_id()
+        self._migrate_is_stale()
 
     def _migrate_agent_id(self) -> None:
         """Add agent_id column if it doesn't exist."""
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(memory_nodes)").fetchall()}
         if "agent_id" not in cols:
             self.conn.execute("ALTER TABLE memory_nodes ADD COLUMN agent_id TEXT")
+            self.conn.commit()
+
+    def _migrate_is_stale(self) -> None:
+        """Add is_stale column to file_anchors if it doesn't exist."""
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(file_anchors)").fetchall()}
+        if cols and "is_stale" not in cols:
+            self.conn.execute(
+                "ALTER TABLE file_anchors ADD COLUMN is_stale INTEGER NOT NULL DEFAULT 0"
+            )
             self.conn.commit()
 
     def insert_node(

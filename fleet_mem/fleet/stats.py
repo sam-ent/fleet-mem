@@ -60,8 +60,17 @@ def get_fleet_stats(
                 id TEXT PRIMARY KEY, memory_id TEXT NOT NULL,
                 file_path TEXT NOT NULL, file_hash TEXT NOT NULL,
                 line_start INTEGER, line_end INTEGER,
+                is_stale INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')))"""
         )
+        # Ensure FTS table exists (engine.py creates it but stats may run first)
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts "
+                "USING fts5(content, summary, content_rowid='rowid')"
+            )
+        except Exception:
+            pass
         stats["memory_nodes"] = conn.execute("SELECT COUNT(*) FROM memory_nodes").fetchone()[0]
         stats["file_anchors"] = conn.execute("SELECT COUNT(*) FROM file_anchors").fetchone()[0]
         conn.close()

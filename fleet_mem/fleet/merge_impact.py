@@ -177,7 +177,7 @@ def notify_merge(
                 )
                 notifications_created += created
 
-            # Identify stale file anchors
+            # Identify and mark stale file anchors
             stale_anchors: list[dict] = []
             if memory_db_path.exists():
                 mem_conn = sqlite3.connect(str(memory_db_path))
@@ -189,6 +189,7 @@ def notify_merge(
                         "JOIN memory_nodes mn ON fa.memory_id = mn.id "
                         "WHERE mn.archived = 0"
                     ).fetchall()
+                    stale_ids = []
                     for row in rows:
                         if row["file_path"] in file_set:
                             stale_anchors.append(
@@ -198,6 +199,20 @@ def notify_merge(
                                     "file_path": row["file_path"],
                                 }
                             )
+                            stale_ids.append(row["id"])
+                    # Persist staleness
+                    if stale_ids:
+                        placeholders = ",".join("?" for _ in stale_ids)
+                        mem_conn.execute(
+                            f"UPDATE file_anchors SET is_stale = 1 "  # noqa: S608
+                            f"WHERE id IN ({placeholders})",
+                            stale_ids,
+                        )
+                        mem_conn.commit()
+                        logger.info(
+                            "Marked %d file anchor(s) as stale",
+                            len(stale_ids),
+                        )
                 except sqlite3.OperationalError:
                     pass
                 finally:
