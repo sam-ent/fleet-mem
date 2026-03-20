@@ -1282,12 +1282,15 @@ _bg_syncs_started = False
 
 # Auto-registration state
 _agent_id: str | None = None
+_agent_project: str | None = None
+_agent_branch: str | None = None
+_last_coordinated_files: set[str] = set()
 _HEARTBEAT_INTERVAL = 30.0  # seconds
 
 
 def _register_agent(config) -> None:
     """Detect context and register agent session on startup."""
-    global _agent_id
+    global _agent_id, _agent_project, _agent_branch
     import subprocess
     import uuid
 
@@ -1322,6 +1325,8 @@ def _register_agent(config) -> None:
         worktree_path=worktree,
         branch=branch,
     )
+    _agent_project = project
+    _agent_branch = branch
     logger.info(
         "Agent registered: %s (project=%s, branch=%s)",
         _agent_id,
@@ -1334,15 +1339,10 @@ def _register_agent(config) -> None:
         _auto_coordinate(config, project, branch)
 
 
-def _auto_coordinate(config, project: str, branch: str) -> None:
-    """Auto-lock and auto-subscribe to files modified on this branch vs main."""
+def _get_modified_files() -> list[str]:
+    """Return files modified on this branch vs main/master."""
     import subprocess
 
-    from .fleet.cross_agent import memory_subscribe
-    from .fleet.lock_registry import lock_acquire
-
-    # Detect which files this branch has changed relative to main
-    modified_files: list[str] = []
     for base in ("main", "master"):
         try:
             result = subprocess.run(
@@ -1352,13 +1352,29 @@ def _auto_coordinate(config, project: str, branch: str) -> None:
                 timeout=10,
             )
             if result.returncode == 0 and result.stdout.strip():
-                modified_files = [f for f in result.stdout.strip().splitlines() if f]
-                break
+                return [f for f in result.stdout.strip().splitlines() if f]
         except Exception:
             continue
+    return []
+
+
+def _auto_coordinate(config, project: str, branch: str) -> None:
+    """Auto-lock and auto-subscribe to files modified on this branch vs main.
+
+    Tracks the last coordinated file set and skips if unchanged.
+    """
+    global _last_coordinated_files
+
+    from .fleet.cross_agent import memory_subscribe
+    from .fleet.lock_registry import lock_acquire
+
+    modified_files = _get_modified_files()
 
     if not modified_files:
-        logger.info("Auto-coordination: no modified files detected on branch %s", branch)
+        return
+
+    current_set = set(modified_files)
+    if current_set == _last_coordinated_files:
         return
 
     logger.info(
@@ -1400,9 +1416,12 @@ def _auto_coordinate(config, project: str, branch: str) -> None:
     except Exception:
         logger.exception("Auto-subscribe failed")
 
+    _last_coordinated_files = current_set
+
 
 def _start_heartbeat_thread(config) -> None:
-    """Background thread that heartbeats the agent session and extends locks."""
+    """Background thread that heartbeats the agent session, extends locks,
+    and re-checks auto-coordination when the branch diff changes."""
     import time
 
     from .fleet.lock_registry import lock_heartbeat
@@ -1420,6 +1439,12 @@ def _start_heartbeat_thread(config) -> None:
                     lock_heartbeat(config.fleet_db_path, _agent_id, ttl_minutes=480)
                 except Exception:
                     pass
+                # Re-check coordination if on a feature branch
+                if _agent_branch and _agent_branch not in ("main", "master"):
+                    try:
+                        _auto_coordinate(config, _agent_project, _agent_branch)
+                    except Exception:
+                        pass
 
     t = threading.Thread(target=_loop, daemon=True, name="agent-heartbeat")
     t.start()
