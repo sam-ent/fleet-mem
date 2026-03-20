@@ -39,16 +39,16 @@ class StatsPanel(Container):
         yield Label("Connecting...", id="stats-summary")
         with Horizontal(classes="sparkline-row"):
             with Container(classes="sparkline-box"):
-                yield Label("Agents", classes="sparkline-label")
+                yield Label("Agents [bold]0[/]", id="gauge-agents", classes="sparkline-label")
                 yield Sparkline([], id="spark-agents")
             with Container(classes="sparkline-box"):
-                yield Label("Locks", classes="sparkline-label")
+                yield Label("Locks [bold]0[/]", id="gauge-locks", classes="sparkline-label")
                 yield Sparkline([], id="spark-locks")
             with Container(classes="sparkline-box"):
-                yield Label("Notifications", classes="sparkline-label")
+                yield Label("Notifs [bold]0[/]", id="gauge-notifs", classes="sparkline-label")
                 yield Sparkline([], id="spark-notifs")
             with Container(classes="sparkline-box"):
-                yield Label("Memory", classes="sparkline-label")
+                yield Label("Memory [bold]0[/]", id="gauge-memory", classes="sparkline-label")
                 yield Sparkline([], id="spark-memory")
 
 
@@ -242,10 +242,20 @@ class FleetMonitorApp(App):
 
         # Sparklines
         try:
-            self.query_one("#spark-agents", Sparkline).data = list(self._agent_history)
-            self.query_one("#spark-locks", Sparkline).data = list(self._lock_history)
-            self.query_one("#spark-notifs", Sparkline).data = list(self._notif_history)
-            self.query_one("#spark-memory", Sparkline).data = list(self._memory_history)
+            for name, history in [
+                ("agents", self._agent_history),
+                ("locks", self._lock_history),
+                ("notifs", self._notif_history),
+                ("memory", self._memory_history),
+            ]:
+                data = list(history)
+                current = int(data[-1]) if data else 0
+                label = name.title()
+                color = "green" if current > 0 else "dim"
+                self.query_one(f"#gauge-{name}", Label).update(
+                    f"{label} [bold {color}]{current}[/]"
+                )
+                self.query_one(f"#spark-{name}", Sparkline).data = data
         except Exception:
             pass
 
