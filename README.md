@@ -89,17 +89,19 @@ Add to your MCP client settings (the `setup.sh` script does this automatically f
 {
   "mcpServers": {
     "fleet-mem": {
-      "command": "/path/to/fleet-mem/.venv/bin/python",
+      "command": "python3",
       "args": ["-m", "fleet_mem.server"],
-      "cwd": "/path/to/fleet-mem",
       "env": {
         "OLLAMA_HOST": "http://localhost:11434",
-        "ANONYMIZED_TELEMETRY": "False"
+        "ANONYMIZED_TELEMETRY": "False",
+        "FLEET_STATS_SOCK": "~/.fleet-mem/stats.sock"
       }
     }
   }
 }
 ```
+
+> **Important:** Do not set `"cwd"` in the MCP config. Claude Code sets the working directory to the project the agent is working in. A hardcoded `cwd` breaks worktree detection and auto-coordination.
 
 fleet-mem works with any MCP-compatible client. Your client starts it automatically on the first tool call.
 
@@ -127,9 +129,10 @@ fleet-mem installs once as a global MCP server. It can index any number of proje
   project-c/     indexed as code_project-c
 
 ~/.local/share/fleet-mem/
-  chroma/         vector embeddings (shared)
-  memory.db       agent memories (shared)
-  fleet.db        locks, subscriptions (shared)
+  chroma/              vector embeddings (shared)
+  memory.db            agent memories + FTS + file anchors (WAL mode)
+  fleet.db             locks, subscriptions, sessions, notifications (WAL mode)
+  embeddings_cache.db  embedding vector cache
 ```
 
 <br>
@@ -267,7 +270,7 @@ sequenceDiagram
 
 > **<ins>Problem</ins>:** Concurrent agents modify the same files, causing merge conflicts and wasted work.
 >
-> **<ins>Solution</ins>:** Agents declare their work area before starting. Conflicts are caught immediately, not after hours of wasted effort.
+> **<ins>Solution</ins>:** Agents automatically lock files they've modified on their branch. Conflicts are caught immediately, not after hours of wasted effort. If some files overlap with another agent's lock, only the non-conflicting files are locked.
 
 ```mermaid
 sequenceDiagram
@@ -275,20 +278,27 @@ sequenceDiagram
     participant B as Agent B
     participant FM as fleet-mem
     participant F as fleet.db
+    participant G as Git
 
-    A->>FM: lock_acquire(["src/auth/*"])
-    FM->>F: INSERT lock
+    Note over A,FM: Auto-coordination (every 30s)
+    A->>G: git diff main...HEAD
+    G-->>A: [auth.py, middleware.py]
+    A->>FM: lock_acquire([auth.py, middleware.py])
+    FM->>F: UPSERT lock
     FM-->>A: acquired
 
-    B->>FM: lock_acquire(["src/auth/login.py"])
-    FM->>F: Check overlap (fnmatch)
-    FM-->>B: conflict (holder: A)
+    Note over B,FM: Auto-coordination (every 30s)
+    B->>G: git diff main...HEAD
+    G-->>B: [api.py, middleware.py]
+    B->>FM: lock_query() → middleware.py held by A
+    B->>FM: lock_acquire([api.py])
+    FM->>F: UPSERT lock (middleware.py skipped)
+    FM-->>B: acquired (1 of 2 files)
 
-    A->>FM: lock_release()
-    FM->>F: DELETE lock
-
-    B->>FM: lock_acquire(["src/auth/login.py"])
-    FM-->>B: acquired
+    Note over A,FM: After merge
+    A->>FM: notify_merge(branch, [auth.py, middleware.py])
+    FM->>F: Release A's locks
+    FM->>F: Notify subscribers
 ```
 
 <br>
@@ -346,7 +356,8 @@ sequenceDiagram
 
     AC->>FM: notify_merge(branch, files)
     FM->>F: Create notifications
-    FM->>M: Mark anchors stale
+    FM->>M: Mark anchors stale (is_stale=1)
+    FM->>F: Release locks for merged branch
 ```
 
 <br>
@@ -382,10 +393,14 @@ See `.env.example` for full configuration. For providers without an OpenAI-compa
 
 ### Fleet coordination
 
-- **File lock registry**: agents declare which files they are working on, others check before starting
-- **Cross-agent memory**: agents share discoveries via subscriptions and notifications
+- **Auto-coordination**: on startup and every 30s, agents automatically lock and subscribe to files modified on their branch vs main. No manual `lock_acquire` or `memory_subscribe` calls needed
+- **Per-file lock filtering**: if some files overlap with another agent's lock, only the non-conflicting files are locked (not all-or-nothing)
+- **Worktree-aware**: agents in different git worktrees of the same repo share a single project namespace. Uses `git rev-parse --git-common-dir` with `--show-toplevel` fallback
+- **UPSERT locks**: one lock per agent per project, atomically updated via `INSERT...ON CONFLICT DO UPDATE`. No duplicate accumulation across restarts
+- **Cross-agent memory**: agents share discoveries via subscriptions and notifications. `memory_store` automatically notifies subscribers matching the file path
 - **Merge impact preview**: before merging, see which in-flight agents would be affected
-- **Post-merge notification**: after merging, automatically notify affected agents and mark stale context
+- **Post-merge notification**: after merging, automatically notify affected agents, mark stale file anchors, and release locks on the merged branch
+- **WAL mode + busy timeout**: all fleet DB modules use SQLite WAL mode with 5s busy timeout for concurrent multi-agent access
 
 ---
 
@@ -412,8 +427,11 @@ All settings via environment variables or a `.env` file in the project root. Cop
 |------|--------|-----|
 | **Code index refresh** | Every `SYNC_INTERVAL` seconds (default: 300) | Polls filesystem, computes xxHash digests, re-indexes changed files |
 | **Agent memory writes** | Immediate | Direct SQLite + ChromaDB insert on `memory_store` call |
-| **Lock acquire/release** | Immediate | Direct SQLite write |
-| **Notifications** | Immediate | Created on `memory_store` if subscriptions match |
+| **Lock acquire/release** | Immediate | Direct SQLite UPSERT (one lock per agent per project) |
+| **Auto-coordination** | Every 30s (heartbeat) | Detects new commits via `git diff main...HEAD`, locks + subscribes to changed files |
+| **Notifications** | Immediate | Created on `memory_store` if subscriptions match (scoped by project) |
+| **Session heartbeat** | Every 30s | Updates `last_activity_at`, extends lock TTLs |
+| **Stale session pruning** | On query | Sessions disconnected >24h are auto-deleted |
 
 For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. File-watching is also available for near-instant sync — set `FILE_WATCHING=true` (the default) to detect changes immediately without polling.
 
@@ -515,12 +533,15 @@ fleet-mem monitor
 
 The TUI connects via a Unix domain socket (0600 permissions — only the socket owner can connect, no network exposure). It shows:
 
-- **Agents tab**: All registered agents with project, worktree, branch, and status (green=active, yellow=idle, red=disconnected)
-- **Stats tab**: Aggregate metrics with sparklines for agents, locks, notifications, and memory over time
-- **Locks tab**: Active file locks by agent, project, patterns, and expiration
-- **Subscriptions tab**: Active file pattern subscriptions
-- **Notifications tab**: Recent cross-agent notifications
-- **Agent filtering**: Type to filter all tables by agent ID
+- **Dashboard tab**: Aggregate metrics with sparklines, conflict alerts (red banner when agents have overlapping locks), and gauges for active agents/locks/notifications/memory
+- **Agents tab**: Registered agents with project, worktree, branch, and color-coded rows (green=active+locked, white=active, dim=disconnected). Disconnected agents hidden by default — press `d` to toggle
+- **Locks tab**: Active file locks with per-file conflict visualization showing which files are contested between which agents
+- **Subscriptions tab**: Tree view grouped by agent (collapsible — `agent-alpha (30 files) → expand`), not a flat table of 800+ rows
+- **Memory tab**: Memory node counts, file anchors, embedding cache, and collection stats
+- **Notifications tab**: Cross-agent notifications with read/unread styling
+- **Log tab**: Live event log showing auto-coordination events, prune actions, and toggle state changes
+
+**Keybindings:** `q` quit, `r` refresh, `f` filter by agent ID, `d` toggle disconnected agents, `x` prune disconnected sessions from DB
 
 For Docker deployments, the socket is exposed via a named volume (`fleet-sock`). Mount it on the host to run the monitor:
 
