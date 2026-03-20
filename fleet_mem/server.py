@@ -1377,32 +1377,52 @@ def _auto_coordinate(config, project: str, branch: str) -> None:
     if current_set == _last_coordinated_files:
         return
 
+    # Filter out files already locked by other agents
+    from .fleet.lock_registry import lock_query
+
+    try:
+        existing = lock_query(config.fleet_db_path, project)
+        locked_by_others: set[str] = set()
+        for lock in existing.get("locks", []):
+            if lock["agent_id"] != _agent_id:
+                locked_by_others.update(lock["file_patterns"])
+        lockable = [f for f in modified_files if f not in locked_by_others]
+    except Exception:
+        lockable = modified_files
+
     logger.info(
-        "Auto-coordination: %d files on branch %s — locking and subscribing",
+        "Auto-coordination: %d files on branch %s (%d lockable, %d held by others)",
         len(modified_files),
         branch,
+        len(lockable),
+        len(modified_files) - len(lockable),
     )
 
-    # Auto-lock modified files
-    try:
-        lock_result = lock_acquire(
-            db_path=config.fleet_db_path,
-            agent_id=_agent_id,
-            project=project,
-            file_patterns=modified_files,
-            branch=branch,
-            ttl_minutes=480,  # 8 hours — extended by heartbeat
-        )
-        if lock_result["status"] == "conflict":
-            logger.warning(
-                "Auto-lock conflict with %s on patterns %s",
-                lock_result["conflicting_agent"],
-                lock_result["conflicting_patterns"],
+    # Auto-lock non-conflicting files
+    if lockable:
+        try:
+            lock_result = lock_acquire(
+                db_path=config.fleet_db_path,
+                agent_id=_agent_id,
+                project=project,
+                file_patterns=lockable,
+                branch=branch,
+                ttl_minutes=480,  # 8 hours — extended by heartbeat
             )
-        else:
-            logger.info("Auto-lock acquired: %s", lock_result.get("lock_id", ""))
-    except Exception:
-        logger.exception("Auto-lock failed")
+            if lock_result["status"] == "conflict":
+                logger.warning(
+                    "Auto-lock conflict with %s on patterns %s",
+                    lock_result["conflicting_agent"],
+                    lock_result["conflicting_patterns"],
+                )
+            else:
+                logger.info(
+                    "Auto-lock acquired: %s (%d files)",
+                    lock_result.get("lock_id", ""),
+                    len(lockable),
+                )
+        except Exception:
+            logger.exception("Auto-lock failed")
 
     # Auto-subscribe to notifications about these files
     try:
