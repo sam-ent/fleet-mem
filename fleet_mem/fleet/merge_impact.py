@@ -174,6 +174,7 @@ def notify_merge(
                     memory_summary=f"Branch '{branch}' merged, file changed: {f}",
                     file_path=f,
                     author_agent_id=f"merge:{branch}",
+                    project=project,
                 )
                 notifications_created += created
 

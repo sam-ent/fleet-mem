@@ -119,12 +119,14 @@ class MemoryEmbedder:
         if file_path and agent_id and fleet_db_path:
             from fleet_mem.fleet.cross_agent import _notify_subscribers
 
+            _project = Path(project_path).name if project_path else None
             _notify_subscribers(
                 fleet_db_path=Path(fleet_db_path),
                 memory_id=node_id,
                 memory_summary=summary or content[:200],
                 file_path=file_path,
                 author_agent_id=agent_id,
+                project=_project,
             )
 
         return node_id
