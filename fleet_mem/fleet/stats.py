@@ -1,5 +1,6 @@
 """Fleet statistics for observability."""
 
+import fnmatch
 import json
 import sqlite3
 from pathlib import Path
@@ -136,6 +137,31 @@ def get_fleet_stats(
                 for r in lock_rows
             ]
 
+            # Conflict detection: pairs of agents with overlapping locks
+            conflicts = []
+            parsed_locks = [(r["agent_id"], json.loads(r["file_patterns"])) for r in lock_rows]
+            for i in range(len(parsed_locks)):
+                for j in range(i + 1, len(parsed_locks)):
+                    agent_a, pats_a = parsed_locks[i]
+                    agent_b, pats_b = parsed_locks[j]
+                    overlapping = []
+                    for pa in pats_a:
+                        for pb in pats_b:
+                            if fnmatch.fnmatch(pb, pa) or fnmatch.fnmatch(pa, pb):
+                                if pa not in overlapping:
+                                    overlapping.append(pa)
+                                if pb not in overlapping:
+                                    overlapping.append(pb)
+                    if overlapping:
+                        conflicts.append(
+                            {
+                                "agent_a": agent_a,
+                                "agent_b": agent_b,
+                                "overlapping_files": overlapping,
+                            }
+                        )
+            stats["conflicts"] = conflicts
+
             # Individual subscription rows
             sub_rows = conn.execute(
                 "SELECT * FROM subscriptions ORDER BY created_at DESC"
@@ -178,6 +204,7 @@ def get_fleet_stats(
             stats["lock_details"] = []
             stats["subscription_details"] = []
             stats["notification_details"] = []
+            stats["conflicts"] = []
 
     # Agent session stats
     try:
