@@ -211,6 +211,7 @@ def _notify_subscribers(
     memory_summary: str,
     file_path: str,
     author_agent_id: str,
+    project: str | None = None,
 ) -> int:
     """Check subscriptions and create notifications for matching agents.
 
@@ -223,7 +224,13 @@ def _notify_subscribers(
         try:
             conn = _connect(fleet_db_path)
             try:
-                subs = conn.execute("SELECT * FROM subscriptions").fetchall()
+                if project:
+                    subs = conn.execute(
+                        "SELECT * FROM subscriptions WHERE project = ?",
+                        (project,),
+                    ).fetchall()
+                else:
+                    subs = conn.execute("SELECT * FROM subscriptions").fetchall()
                 now = _now_iso()
                 created = 0
                 for sub in subs:
