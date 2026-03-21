@@ -8,7 +8,7 @@ pipeline {
     stages {
         stage('Lint') {
             agent {
-                docker { image 'python:3.13-slim' }
+                docker { image 'python:3.13-slim'; args '-u root' }
             }
             steps {
                 sh '''
@@ -28,7 +28,7 @@ pipeline {
                     }
                 }
                 agent {
-                    docker { image "python:${PYTHON_VERSION}-slim" }
+                    docker { image "python:${PYTHON_VERSION}-slim"; args '-u root' }
                 }
                 stages {
                     stage('Test') {
@@ -46,7 +46,7 @@ pipeline {
 
         stage('Install Smoke') {
             agent {
-                docker { image 'python:3.13-slim' }
+                docker { image 'python:3.13-slim'; args '-u root' }
             }
             steps {
                 sh '''
