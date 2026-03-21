@@ -7,7 +7,6 @@ pipeline {
 
     environment {
         PYENV_ROOT = '/opt/pyenv'
-        PATH = "/opt/pyenv/bin:/opt/pyenv/shims:${env.PATH}"
     }
 
     stages {
@@ -34,20 +33,18 @@ pipeline {
                 stages {
                     stage('Test') {
                         steps {
-                            sh """
-                                if [ "\${PYTHON_VERSION}" = "3.13" ]; then
-                                    PYTHON=python3
+                            sh '''
+                                if [ "$PYTHON_VERSION" = "3.13" ]; then
+                                    PYTHON=/usr/bin/python3
                                 else
-                                    eval "\$(pyenv init -)"
-                                    pyenv shell \${PYTHON_VERSION}
-                                    PYTHON=python
+                                    PYTHON="$PYENV_ROOT/versions/$PYTHON_VERSION/bin/python3"
                                 fi
-                                \$PYTHON -m venv .venv-\${PYTHON_VERSION}
-                                . .venv-\${PYTHON_VERSION}/bin/activate
+                                $PYTHON -m venv ".venv-$PYTHON_VERSION"
+                                . ".venv-$PYTHON_VERSION/bin/activate"
                                 python --version
                                 pip install -e ".[dev]" -q
                                 pytest tests/ -v
-                            """
+                            '''
                         }
                     }
                 }
@@ -88,18 +85,25 @@ from fleet_mem.fleet.sessions import register_agent; print('sessions OK')
             cleanWs()
         }
         success {
-            script {
-                if (env.CHANGE_ID) {
-                    // PR build
-                    githubNotify context: 'jenkins/ci', status: 'SUCCESS', description: 'Build passed'
-                } else {
-                    githubNotify context: 'jenkins/ci', status: 'SUCCESS', description: 'Build passed'
-                }
+            withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+                sh '''
+                    curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github+json" \
+                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
+                      -d '{"state":"success","context":"jenkins/ci","description":"Build passed","target_url":"'"$BUILD_URL"'"}'
+                '''
             }
         }
         failure {
-            script {
-                githubNotify context: 'jenkins/ci', status: 'FAILURE', description: 'Build failed'
+            withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+                sh '''
+                    curl -s -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github+json" \
+                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
+                      -d '{"state":"failure","context":"jenkins/ci","description":"Build failed","target_url":"'"$BUILD_URL"'"}'
+                '''
             }
         }
     }
