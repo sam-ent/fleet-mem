@@ -83,12 +83,26 @@ from fleet_mem.fleet.sessions import register_agent; print('sessions OK')
     post {
         success {
             withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
-                sh 'curl -sf -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" -d "{\"state\":\"success\",\"context\":\"jenkins/ci\",\"description\":\"Build passed\",\"target_url\":\"$BUILD_URL\"}"'
+                sh '''
+                    curl -sf -X POST \
+                      -H "Authorization: token $GH_TOKEN" \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "Content-Type: application/json" \
+                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
+                      -d "$(printf '{"state":"success","context":"jenkins/ci","description":"Build passed","target_url":"%s"}' "$BUILD_URL")"
+                '''
             }
         }
         failure {
             withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
-                sh 'curl -sf -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" -d "{\"state\":\"failure\",\"context\":\"jenkins/ci\",\"description\":\"Build failed\",\"target_url\":\"$BUILD_URL\"}"'
+                sh '''
+                    curl -sf -X POST \
+                      -H "Authorization: token $GH_TOKEN" \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "Content-Type: application/json" \
+                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
+                      -d "$(printf '{"state":"failure","context":"jenkins/ci","description":"Build failed","target_url":"%s"}' "$BUILD_URL")"
+                '''
             }
         }
         cleanup {
