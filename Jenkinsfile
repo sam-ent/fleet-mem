@@ -1,20 +1,17 @@
 pipeline {
-    agent any
+    agent none
 
     triggers {
         pollSCM('H/2 * * * *')
     }
 
-    environment {
-        PYENV_ROOT = '/opt/pyenv'
-    }
-
     stages {
         stage('Lint') {
+            agent {
+                docker { image 'python:3.13-slim' }
+            }
             steps {
                 sh '''
-                    python3 -m venv .venv-lint
-                    . .venv-lint/bin/activate
                     pip install -e ".[dev]" -q
                     ruff check fleet_mem/ tests/
                     ruff format --check fleet_mem/ tests/
@@ -27,20 +24,16 @@ pipeline {
                 axes {
                     axis {
                         name 'PYTHON_VERSION'
-                        values '3.11.13', '3.12.10', '3.13'
+                        values '3.11', '3.12', '3.13'
                     }
+                }
+                agent {
+                    docker { image "python:${PYTHON_VERSION}-slim" }
                 }
                 stages {
                     stage('Test') {
                         steps {
                             sh '''
-                                if [ "$PYTHON_VERSION" = "3.13" ]; then
-                                    PYTHON=/usr/bin/python3
-                                else
-                                    PYTHON="$PYENV_ROOT/versions/$PYTHON_VERSION/bin/python3"
-                                fi
-                                $PYTHON -m venv ".venv-$PYTHON_VERSION"
-                                . ".venv-$PYTHON_VERSION/bin/activate"
                                 python --version
                                 pip install -e ".[dev]" -q
                                 pytest tests/ -v
@@ -52,10 +45,11 @@ pipeline {
         }
 
         stage('Install Smoke') {
+            agent {
+                docker { image 'python:3.13-slim' }
+            }
             steps {
                 sh '''
-                    python3 -m venv .venv-smoke
-                    . .venv-smoke/bin/activate
                     pip install build -q
                     python -m build --wheel
                     pip install dist/*.whl
@@ -67,6 +61,7 @@ pipeline {
         }
 
         stage('Docker Smoke') {
+            agent any
             steps {
                 sh '''
                     docker build -t fleet-mem-ci .
@@ -82,31 +77,32 @@ from fleet_mem.fleet.sessions import register_agent; print('sessions OK')
 
     post {
         success {
-            withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
-                sh '''
-                    curl -sf -X POST \
-                      -H "Authorization: token $GH_TOKEN" \
-                      -H "Accept: application/vnd.github+json" \
-                      -H "Content-Type: application/json" \
-                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
-                      -d "$(printf '{"state":"success","context":"jenkins/ci","description":"Build passed","target_url":"%s"}' "$BUILD_URL")"
-                '''
+            node('') {
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh '''
+                        curl -sf -X POST \
+                          -H "Authorization: token $GH_TOKEN" \
+                          -H "Accept: application/vnd.github+json" \
+                          -H "Content-Type: application/json" \
+                          "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
+                          -d "$(printf '{"state":"success","context":"jenkins/ci","description":"Build passed","target_url":"%s"}' "$BUILD_URL")"
+                    '''
+                }
             }
         }
         failure {
-            withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
-                sh '''
-                    curl -sf -X POST \
-                      -H "Authorization: token $GH_TOKEN" \
-                      -H "Accept: application/vnd.github+json" \
-                      -H "Content-Type: application/json" \
-                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
-                      -d "$(printf '{"state":"failure","context":"jenkins/ci","description":"Build failed","target_url":"%s"}' "$BUILD_URL")"
-                '''
+            node('') {
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh '''
+                        curl -sf -X POST \
+                          -H "Authorization: token $GH_TOKEN" \
+                          -H "Accept: application/vnd.github+json" \
+                          -H "Content-Type: application/json" \
+                          "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
+                          -d "$(printf '{"state":"failure","context":"jenkins/ci","description":"Build failed","target_url":"%s"}' "$BUILD_URL")"
+                    '''
+                }
             }
-        }
-        cleanup {
-            cleanWs()
         }
     }
 }
