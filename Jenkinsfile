@@ -34,6 +34,7 @@ pipeline {
                     stage('Test') {
                         steps {
                             sh '''
+                                apt-get update -qq && apt-get install -y -qq git > /dev/null 2>&1
                                 python --version
                                 pip install -e ".[dev]" -q
                                 pytest tests/ -v
@@ -80,12 +81,13 @@ from fleet_mem.fleet.sessions import register_agent; print('sessions OK')
             node('') {
                 withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
                     sh '''
+                        COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "$GIT_COMMIT")
                         curl -sf -X POST \
                           -H "Authorization: token $GH_TOKEN" \
                           -H "Accept: application/vnd.github+json" \
                           -H "Content-Type: application/json" \
-                          "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
-                          -d "$(printf '{"state":"success","context":"jenkins/ci","description":"Build passed","target_url":"%s"}' "$BUILD_URL")"
+                          "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$COMMIT" \
+                          -d "$(printf '{"state":"success","context":"jenkins/ci","description":"Build passed","target_url":"%s"}' "$BUILD_URL")" || true
                     '''
                 }
             }
@@ -94,12 +96,13 @@ from fleet_mem.fleet.sessions import register_agent; print('sessions OK')
             node('') {
                 withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
                     sh '''
+                        COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "$GIT_COMMIT")
                         curl -sf -X POST \
                           -H "Authorization: token $GH_TOKEN" \
                           -H "Accept: application/vnd.github+json" \
                           -H "Content-Type: application/json" \
-                          "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
-                          -d "$(printf '{"state":"failure","context":"jenkins/ci","description":"Build failed","target_url":"%s"}' "$BUILD_URL")"
+                          "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$COMMIT" \
+                          -d "$(printf '{"state":"failure","context":"jenkins/ci","description":"Build failed","target_url":"%s"}' "$BUILD_URL")" || true
                     '''
                 }
             }
