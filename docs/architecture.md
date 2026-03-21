@@ -231,8 +231,7 @@ All configuration via environment variables with sensible defaults:
 ## Acknowledgments
 
 The architecture of this project was inspired by [claude-context](https://github.com/zilliztech/claude-context)
-by Zilliz (MIT License). While all code is an original Python implementation, the following
-design patterns were informed by their TypeScript reference:
+by Zilliz (MIT License). While the architectural patterns were informed by their TypeScript reference, this project is an original Python implementation licensed under AGPL-3.0. The following design patterns were specifically adapted:
 
 - **VectorDatabase abstraction** — interface shape for collection-based vector storage
 - **Ollama embedding adapter** — auto-dimension detection on first call, batch chunking pattern

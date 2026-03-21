@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- License changed from MIT to AGPL-3.0 for all original code in fleet-mem
 - Logging migrated from stdlib `logging` to `structlog` across all modules
 - `opentelemetry-api` and `structlog` are now explicit dependencies (OTel was previously transitive only)
 
