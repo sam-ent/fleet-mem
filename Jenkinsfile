@@ -8,7 +8,7 @@ pipeline {
     stages {
         stage('Lint') {
             agent {
-                docker { image 'python:3.13-slim'; args '-u root' }
+                docker { image 'python:3.13-slim'; args '-u root -v pip-cache:/root/.cache/pip' }
             }
             steps {
                 sh '''
@@ -28,7 +28,7 @@ pipeline {
                     }
                 }
                 agent {
-                    docker { image "python:${PYTHON_VERSION}-slim"; args '-u root' }
+                    docker { image "python:${PYTHON_VERSION}-slim"; args '-u root -v pip-cache:/root/.cache/pip' }
                 }
                 stages {
                     stage('Test') {
@@ -47,7 +47,7 @@ pipeline {
 
         stage('Install Smoke') {
             agent {
-                docker { image 'python:3.13-slim'; args '-u root' }
+                docker { image 'python:3.13-slim'; args '-u root -v pip-cache:/root/.cache/pip' }
             }
             steps {
                 sh '''
