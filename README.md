@@ -1,5 +1,5 @@
 [![CI](https://github.com/sam-ent/fleet-mem/actions/workflows/ci.yml/badge.svg)](https://github.com/sam-ent/fleet-mem/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io)
 [![PyPI](https://img.shields.io/pypi/v/fleet-mem.svg)](https://pypi.org/project/fleet-mem/)
@@ -681,7 +681,7 @@ See [roadmap.md](roadmap.md) for the full plan.
 
 ## License
 
-MIT
+AGPL-3.0
 
 <details>
 <summary>Acknowledgments</summary>
