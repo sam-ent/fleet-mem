@@ -81,30 +81,18 @@ from fleet_mem.fleet.sessions import register_agent; print('sessions OK')
     }
 
     post {
-        always {
-            cleanWs()
-        }
         success {
-            withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
-                sh '''
-                    curl -s -X POST \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github+json" \
-                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
-                      -d '{"state":"success","context":"jenkins/ci","description":"Build passed","target_url":"'"$BUILD_URL"'"}'
-                '''
+            withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                sh 'curl -sf -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" -d "{\"state\":\"success\",\"context\":\"jenkins/ci\",\"description\":\"Build passed\",\"target_url\":\"$BUILD_URL\"}"'
             }
         }
         failure {
-            withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
-                sh '''
-                    curl -s -X POST \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github+json" \
-                      "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" \
-                      -d '{"state":"failure","context":"jenkins/ci","description":"Build failed","target_url":"'"$BUILD_URL"'"}'
-                '''
+            withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                sh 'curl -sf -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/sam-ent/fleet-mem/statuses/$GIT_COMMIT" -d "{\"state\":\"failure\",\"context\":\"jenkins/ci\",\"description\":\"Build failed\",\"target_url\":\"$BUILD_URL\"}"'
             }
+        }
+        cleanup {
+            cleanWs()
         }
     }
 }
