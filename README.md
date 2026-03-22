@@ -139,22 +139,7 @@ fleet-mem installs once as a global MCP server. It can index any number of proje
 
 ### Architecture
 
-```mermaid
-graph LR
-    MCP[Any MCP Client] --> FM[fleet-mem]
-
-    FM --> CS[Code Search]
-    FM --> AM[Agent Memory]
-    FM --> FC[Fleet Coord]
-
-    CS --> C[(ChromaDB)]
-    CS --> O[Ollama]
-    AM --> C
-    AM --> M[(memory.db)]
-    AM --> O
-    FC --> F[(fleet.db)]
-    FC --> G[Git]
-```
+<p align="center"><img src="docs/diagrams/architecture.svg" alt="architecture" /></p>
 
 <br>
 
@@ -193,23 +178,7 @@ AST-aware splitting means search results are complete, meaningful code units. Te
 >
 > **<ins>Solution</ins>:** One-time indexing parses code into semantic chunks and embeds them. Agents search by meaning across the whole codebase.
 
-```mermaid
-sequenceDiagram
-    participant S as Setup / Sync
-    participant FM as fleet-mem
-    participant TS as tree-sitter
-    participant OL as Ollama
-    participant C as ChromaDB
-
-    S->>FM: index_codebase(path)
-    FM->>FM: Walk files, skip .gitignore
-    FM->>TS: Parse into AST
-    TS-->>FM: Chunks (functions, classes)
-    FM->>OL: Embed (batches of 64)
-    OL-->>FM: Vectors
-    FM->>C: Upsert chunks + vectors
-    FM-->>S: {status: indexed}
-```
+<p align="center"><img src="docs/diagrams/indexing-flow.svg" alt="indexing-flow" /></p>
 
 <br>
 
@@ -219,20 +188,7 @@ sequenceDiagram
 >
 > **<ins>Solution</ins>:** Natural language query returns ranked code snippets with file paths and line numbers. No exact match needed.
 
-```mermaid
-sequenceDiagram
-    participant A as Agent
-    participant FM as fleet-mem
-    participant OL as Ollama
-    participant C as ChromaDB
-
-    A->>FM: search_code("auth middleware")
-    FM->>OL: Embed query
-    OL-->>FM: Query vector
-    FM->>C: Nearest-neighbor search
-    C-->>FM: Top-K chunks + distances
-    FM-->>A: [{file, lines, snippet, score}]
-```
+<p align="center"><img src="docs/diagrams/search-flow.svg" alt="search-flow" /></p>
 
 <br>
 
@@ -242,27 +198,7 @@ sequenceDiagram
 >
 > **<ins>Solution</ins>:** Discoveries persist in a shared memory store. Any agent can find them later via keyword or semantic search.
 
-```mermaid
-sequenceDiagram
-    participant A as Agent
-    participant FM as fleet-mem
-    participant M as memory.db
-    participant OL as Ollama
-    participant C as ChromaDB
-    participant F as fleet.db
-
-    A->>FM: memory_store("auth uses JWT")
-    FM->>M: INSERT memory + FTS index
-    FM->>OL: Embed content
-    FM->>C: Upsert vector
-    FM->>F: Notify matching subscribers
-
-    A->>FM: memory_search("authentication")
-    FM->>M: FTS5 keyword search
-    FM->>OL: Embed query
-    FM->>C: Vector search
-    FM-->>A: Merged ranked results
-```
+<p align="center"><img src="docs/diagrams/memory-flow.svg" alt="memory-flow" /></p>
 
 <br>
 
@@ -272,34 +208,7 @@ sequenceDiagram
 >
 > **<ins>Solution</ins>:** Agents automatically lock files they've modified on their branch. Conflicts are caught immediately, not after hours of wasted effort. If some files overlap with another agent's lock, only the non-conflicting files are locked.
 
-```mermaid
-sequenceDiagram
-    participant A as Agent A
-    participant B as Agent B
-    participant FM as fleet-mem
-    participant F as fleet.db
-    participant G as Git
-
-    Note over A,FM: Auto-coordination (every 30s)
-    A->>G: git diff main...HEAD
-    G-->>A: [auth.py, middleware.py]
-    A->>FM: lock_acquire([auth.py, middleware.py])
-    FM->>F: UPSERT lock
-    FM-->>A: acquired
-
-    Note over B,FM: Auto-coordination (every 30s)
-    B->>G: git diff main...HEAD
-    G-->>B: [api.py, middleware.py]
-    B->>FM: lock_query() → middleware.py held by A
-    B->>FM: lock_acquire([api.py])
-    FM->>F: UPSERT lock (middleware.py skipped)
-    FM-->>B: acquired (1 of 2 files)
-
-    Note over A,FM: After merge
-    A->>FM: notify_merge(branch, [auth.py, middleware.py])
-    FM->>F: Release A's locks
-    FM->>F: Notify subscribers
-```
+<p align="center"><img src="docs/diagrams/lock-coordination.svg" alt="lock-coordination" /></p>
 
 <br>
 
@@ -309,27 +218,7 @@ sequenceDiagram
 >
 > **<ins>Solution</ins>:** Agents subscribe to file patterns they care about. When another agent stores a discovery matching that pattern, subscribers are notified automatically.
 
-```mermaid
-sequenceDiagram
-    participant A as Agent A
-    participant B as Agent B
-    participant FM as fleet-mem
-    participant F as fleet.db
-    participant M as memory.db
-    participant C as ChromaDB
-
-    B->>FM: memory_subscribe(["src/auth/*"])
-    FM->>F: INSERT subscription
-
-    A->>FM: memory_store("auth uses JWT")
-    FM->>M: INSERT node
-    FM->>C: Embed + store
-    FM->>F: Match subscriptions, notify B
-
-    B->>FM: memory_notifications()
-    FM->>F: SELECT unread
-    FM-->>B: ["auth uses JWT"]
-```
+<p align="center"><img src="docs/diagrams/memory-subscriptions.svg" alt="memory-subscriptions" /></p>
 
 <br>
 
@@ -339,26 +228,7 @@ sequenceDiagram
 >
 > **<ins>Solution</ins>:** Before merging, see exactly which agents, memories, and branches will be affected. After merging, one call notifies everyone and marks stale context.
 
-```mermaid
-sequenceDiagram
-    participant AC as Agent / CI
-    participant FM as fleet-mem
-    participant F as fleet.db
-    participant M as memory.db
-    participant C as ChromaDB
-
-    AC->>FM: merge_impact(["src/auth/login.py"])
-    FM->>F: Query overlapping locks
-    FM->>F: Query matching subscriptions
-    FM->>C: Check stale branch overlays
-    FM->>M: Query stale file anchors
-    FM-->>AC: {locked, subscribed, stale}
-
-    AC->>FM: notify_merge(branch, files)
-    FM->>F: Create notifications
-    FM->>M: Mark anchors stale (is_stale=1)
-    FM->>F: Release locks for merged branch
-```
+<p align="center"><img src="docs/diagrams/merge-impact.svg" alt="merge-impact" /></p>
 
 <br>
 
@@ -454,28 +324,7 @@ fleet-mem includes OpenTelemetry tracing, structured logging with trace correlat
 
 #### Observability architecture
 
-```mermaid
-graph LR
-    subgraph fleet-mem server
-        DP[Data Plane<br/>index, search, memory]
-        CP[Coordination Plane<br/>locks, subscriptions, merges]
-        SL[structlog<br/>trace_id + span_id]
-        OT[OTel Spans]
-        SS[Stats Socket<br/>Unix 0600]
-    end
-
-    DP --> OT
-    CP --> OT
-    DP --> SL
-    CP --> SL
-
-    OT -->|OTLP gRPC| COL[Jaeger / Tempo<br/>/ any collector]
-    SL -->|JSON logs| LOG[Log aggregator]
-
-    SS -->|poll| TUI[fleet-mem monitor<br/>Textual TUI]
-
-    DB[(fleet.db<br/>sessions, locks,<br/>subscriptions)] --> SS
-```
+<p align="center"><img src="docs/diagrams/observability.svg" alt="observability" /></p>
 
 #### Monitoring a fleet
 
@@ -483,38 +332,7 @@ graph LR
 >
 > **<ins>Solution</ins>:** Agents register on connect. The TUI monitor polls fleet state over a Unix socket and shows agents, locks, subscriptions, and notifications in real time.
 
-```mermaid
-sequenceDiagram
-    participant A as Agent A
-    participant B as Agent B
-    participant FM as fleet-mem
-    participant DB as fleet.db
-    participant TUI as fleet-mem monitor
-
-    A->>FM: fleet_register(agent-a, myapp, branch=fix/login)
-    FM->>DB: INSERT agent_sessions
-    B->>FM: fleet_register(agent-b, myapp, branch=feat/oauth)
-    FM->>DB: INSERT agent_sessions
-
-    TUI->>DB: poll stats.sock
-    Note over TUI: Agents tab: agent-a (active), agent-b (active)
-
-    A->>FM: lock_acquire(src/auth/*)
-    FM->>DB: INSERT agent_locks
-    B->>FM: lock_acquire(src/auth/login.py)
-    FM-->>B: conflict! (agent-a holds src/auth/*)
-
-    TUI->>DB: poll stats.sock
-    Note over TUI: Locks tab: agent-a → src/auth/*
-
-    A->>FM: memory_store("auth uses JWT")
-    FM->>DB: notify subscribers
-    B->>FM: memory_notifications(agent-b)
-    FM-->>B: "agent-a stored: auth uses JWT"
-
-    TUI->>DB: poll stats.sock
-    Note over TUI: Notifications tab: agent-a → agent-b
-```
+<p align="center"><img src="docs/diagrams/fleet-registration.svg" alt="fleet-registration" /></p>
 
 ### Quick start — Fleet monitor TUI
 
