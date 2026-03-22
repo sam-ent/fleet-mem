@@ -74,3 +74,22 @@ select = ["E", "F", "I", "W"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["fleet_mem"]
+omit = [
+    "fleet_mem/__main__.py",
+    "fleet_mem/cli.py",
+    "fleet_mem/monitor/*",
+    "fleet_mem/stats_server.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "pass",
+    "\\.\\.\\.$$",
+]
