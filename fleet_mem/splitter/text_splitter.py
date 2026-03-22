@@ -25,6 +25,8 @@ def split_text(
     if not text.strip():
         return []
 
+    overlap = min(overlap, chunk_size - 1)
+
     lines = text.split("\n")
     chunks: list[TextChunk] = []
 
