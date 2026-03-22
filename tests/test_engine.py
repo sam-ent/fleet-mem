@@ -1,5 +1,4 @@
 import sqlite3
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -73,11 +72,11 @@ def test_insert_and_get_node(engine):
 def test_update_node_project_path(engine):
     node_id = "node-1"
     engine.insert_node(node_id, "type", "content")
-    
+
     engine.update_node_project_path(node_id, "/new/path")
     node = engine.get_node(node_id)
     assert node["project_path"] == "/new/path"
-    
+
     engine.update_node_project_path(node_id, None)
     node = engine.get_node(node_id)
     assert node["project_path"] is None
@@ -104,7 +103,7 @@ def test_fts_search(engine):
 
 def test_fts_search_quotes_handling(engine):
     engine.insert_node("1", "type", 'A "quoted" string')
-    results = engine.search_fts('quoted')
+    results = engine.search_fts("quoted")
     assert len(results) == 1
 
 
@@ -129,7 +128,7 @@ def test_file_anchors(engine):
 def test_get_all_file_anchors_filtering(engine):
     engine.insert_node("n1", "type", "c1", project_path="/p1")
     engine.insert_node("n2", "type", "c2", project_path="/p2")
-    
+
     engine.insert_file_anchor("a1", "n1", "f1.py", "h1")
     engine.insert_file_anchor("a2", "n2", "f2.py", "h2")
 
@@ -145,19 +144,25 @@ def test_migrations_on_existing_db(db_path):
     # Manually create a DB without the new columns
     conn = sqlite3.connect(str(db_path))
     conn.execute(
-        "CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, node_type TEXT, content TEXT, source TEXT DEFAULT 'agent')"
+        "CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, node_type TEXT,"
+        " content TEXT, source TEXT DEFAULT 'agent')"
     )
     conn.execute(
-        "CREATE TABLE file_anchors (id TEXT PRIMARY KEY, memory_id TEXT, file_path TEXT, file_hash TEXT)"
+        "CREATE TABLE file_anchors (id TEXT PRIMARY KEY, memory_id TEXT,"
+        " file_path TEXT, file_hash TEXT)"
     )
     conn.close()
 
     # Opening with MemoryEngine should trigger migrations
     with MemoryEngine(db_path) as engine:
-        cols_nodes = {row[1] for row in engine.conn.execute("PRAGMA table_info(memory_nodes)").fetchall()}
+        cols_nodes = {
+            row[1] for row in engine.conn.execute("PRAGMA table_info(memory_nodes)").fetchall()
+        }
         assert "agent_id" in cols_nodes
-        
-        cols_anchors = {row[1] for row in engine.conn.execute("PRAGMA table_info(file_anchors)").fetchall()}
+
+        cols_anchors = {
+            row[1] for row in engine.conn.execute("PRAGMA table_info(file_anchors)").fetchall()
+        }
         assert "is_stale" in cols_anchors
 
 
@@ -173,7 +178,7 @@ def test_archived_nodes_excluded_from_search(engine):
 def test_archived_nodes_excluded_from_anchors(engine):
     engine.insert_node("1", "type", "content", project_path="/p1")
     engine.insert_file_anchor("a1", "1", "f1.py", "h1")
-    
+
     engine.conn.execute("UPDATE memory_nodes SET archived = 1 WHERE id = '1'")
     engine.conn.commit()
 
@@ -185,10 +190,10 @@ def test_archived_nodes_excluded_from_anchors(engine):
 def test_open_with_sqlite_params(mock_connect, db_path):
     mock_conn = MagicMock()
     mock_connect.return_value = mock_conn
-    
+
     engine = MemoryEngine(db_path)
     engine.open()
-    
+
     # Verify PRAGMAs were set
     calls = [call[0][0] for call in mock_conn.execute.call_args_list]
     assert "PRAGMA journal_mode=WAL" in calls

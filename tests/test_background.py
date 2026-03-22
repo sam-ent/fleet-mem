@@ -1,7 +1,7 @@
 import asyncio
-import pytest
 from unittest.mock import MagicMock, patch
-from pathlib import Path
+
+import pytest
 
 from fleet_mem.config import Config
 from fleet_mem.sync.background import BackgroundSync
@@ -73,9 +73,7 @@ async def test_sync_now_no_changes(bg_sync, mock_sync_instance, mock_reindex_cal
         await bg_sync.sync_now()
 
         mock_reindex_callback.assert_not_called()
-        mock_sync_instance.save_snapshot.assert_called_once_with(
-            "test-project", new_snap
-        )
+        mock_sync_instance.save_snapshot.assert_called_once_with("test-project", new_snap)
 
 
 @pytest.mark.asyncio
@@ -96,12 +94,8 @@ async def test_sync_now_with_changes(bg_sync, mock_sync_instance, mock_reindex_c
         await bg_sync.sync_now()
 
         # Lists passed to callback should be sorted
-        mock_reindex_callback.assert_called_once_with(
-            ["file_a.txt", "file_b.txt"], ["file_c.txt"]
-        )
-        mock_sync_instance.save_snapshot.assert_called_once_with(
-            "test-project", new_snap
-        )
+        mock_reindex_callback.assert_called_once_with(["file_a.txt", "file_b.txt"], ["file_c.txt"])
+        mock_sync_instance.save_snapshot.assert_called_once_with("test-project", new_snap)
 
 
 @pytest.mark.asyncio

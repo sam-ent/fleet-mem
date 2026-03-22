@@ -1,16 +1,12 @@
-import uuid
-from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 
 import pytest
 import xxhash
 
 from fleet_mem.memory.embedder import (
-    MemoryEmbedder,
-    MemoryResult,
-    StaleAnchor,
-    _hash_file,
     MEMORY_COLLECTION,
+    MemoryEmbedder,
+    _hash_file,
 )
 from fleet_mem.vectordb.types import VectorDocument
 
@@ -51,14 +47,14 @@ def test_memory_store_basic(embedder, mock_engine, mock_embedding, mock_vectordb
         node_type="thought",
         content="test content",
         summary="test summary",
-        keywords=["test", "memory"]
+        keywords=["test", "memory"],
     )
 
     assert isinstance(node_id, str)
     mock_engine.insert_node.assert_called_once()
     mock_embedding.embed.assert_called_once_with("test content")
     mock_vectordb.insert.assert_called_once()
-    
+
     # Verify VectorDocument construction
     args, _ = mock_vectordb.insert.call_args
     assert args[0] == MEMORY_COLLECTION
@@ -70,12 +66,9 @@ def test_memory_store_with_file_anchor(embedder, mock_engine):
     with patch("fleet_mem.memory.embedder._hash_file") as mock_hash:
         mock_hash.return_value = "fakehash"
         embedder.memory_store(
-            node_type="code",
-            content="print(1)",
-            file_path="test.py",
-            line_range="10-20"
+            node_type="code", content="print(1)", file_path="test.py", line_range="10-20"
         )
-        
+
         mock_engine.insert_file_anchor.assert_called_once()
         args = mock_engine.insert_file_anchor.call_args[1]
         assert args["file_path"] == "test.py"
@@ -93,7 +86,7 @@ def test_memory_store_notifies_subscribers(embedder, mock_engine):
                 file_path="src/app.py",
                 agent_id="agent-1",
                 fleet_db_path="/tmp/fleet.db",
-                project_path="/home/user/project"
+                project_path="/home/user/project",
             )
             mock_notify.assert_called_once()
 
@@ -101,10 +94,10 @@ def test_memory_store_notifies_subscribers(embedder, mock_engine):
 def test_memory_search_hybrid_fusion(embedder, mock_engine, mock_vectordb):
     # Mock FTS results (ID 1 is rank 1, ID 2 is rank 2)
     mock_engine.search_fts.return_value = [{"id": "1"}, {"id": "2"}]
-    
+
     # Mock VectorDB results (ID 2 is rank 1, ID 3 is rank 2)
     mock_vectordb.search.return_value = [{"id": "2"}, {"id": "3"}]
-    
+
     # Mock node retrieval
     nodes = {
         "1": {"node_type": "a", "content": "c1", "summary": "s1", "file_path": "f1"},
@@ -128,7 +121,10 @@ def test_memory_search_node_type_filtering(embedder, mock_engine, mock_vectordb)
     mock_engine.search_fts.return_value = [{"id": "1"}]
     mock_vectordb.search.return_value = []
     mock_engine.get_node.return_value = {
-        "node_type": "mismatch", "content": "...", "summary": "...", "file_path": None
+        "node_type": "mismatch",
+        "content": "...",
+        "summary": "...",
+        "file_path": None,
     }
 
     results = embedder.memory_search("query", node_type="target")
@@ -145,15 +141,17 @@ def test_stale_check_detects_changes(embedder, mock_engine):
         {"id": "a1", "memory_id": "m1", "file_path": "changed.txt", "file_hash": "old"},
         {"id": "a2", "memory_id": "m2", "file_path": "same.txt", "file_hash": "current"},
     ]
-    
+
     def side_effect(path):
-        if path == "changed.txt": return "new"
-        if path == "same.txt": return "current"
+        if path == "changed.txt":
+            return "new"
+        if path == "same.txt":
+            return "current"
         raise FileNotFoundError()
 
     with patch("fleet_mem.memory.embedder._hash_file", side_effect=side_effect):
         stale = embedder.stale_check()
-        
+
         assert len(stale) == 1
         assert stale[0].anchor_id == "a1"
         assert stale[0].current_hash == "new"
@@ -163,7 +161,7 @@ def test_stale_check_handles_missing_files(embedder, mock_engine):
     mock_engine.get_all_file_anchors.return_value = [
         {"id": "a1", "memory_id": "m1", "file_path": "missing.txt", "file_hash": "hash"},
     ]
-    
+
     with patch("fleet_mem.memory.embedder._hash_file", side_effect=FileNotFoundError):
         stale = embedder.stale_check()
         assert len(stale) == 1
@@ -174,7 +172,7 @@ def test_hash_file_utility(tmp_path):
     f = tmp_path / "test.bin"
     content = b"hello world" * 1000
     f.write_bytes(content)
-    
+
     expected = xxhash.xxh3_64(content).hexdigest()
     assert _hash_file(str(f)) == expected
 
@@ -183,8 +181,8 @@ def test_hash_file_chunking(tmp_path):
     # Test that large files are read correctly in chunks
     f = tmp_path / "large.bin"
     # Create a 10KB file to trigger multiple 8KB reads
-    content = b"A" * 10240 
+    content = b"A" * 10240
     f.write_bytes(content)
-    
+
     expected = xxhash.xxh3_64(content).hexdigest()
     assert _hash_file(str(f)) == expected
