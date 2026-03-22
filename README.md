@@ -2,7 +2,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io)
-[![PyPI](https://img.shields.io/pypi/v/fleet-mem.svg)](https://pypi.org/project/fleet-mem/)
+[![PyPI](https://img.shields.io/pypi/v/fleet-mem.svg)](https://pypi.org/project/fleet-mem/) [![Downloads](https://img.shields.io/pypi/dm/fleet-mem)](https://pypi.org/project/fleet-mem/) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 # fleet-mem
 
