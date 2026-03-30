@@ -107,5 +107,10 @@ from fleet_mem.fleet.sessions import register_agent; print('sessions OK')
                 }
             }
         }
+        always {
+            node('docker-runner') {
+                cleanWs()
+            }
+        }
     }
 }
