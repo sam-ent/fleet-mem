@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import ollama as ollama_lib
 import pytest
 
 from fleet_mem.config import Config
@@ -73,6 +74,55 @@ def test_connection_error(mock_client_cls, config):
     emb = OllamaEmbedding(config)
     with pytest.raises(ConnectionError, match="Cannot reach Ollama"):
         emb.embed("hello")
+
+
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
+def test_response_error_preserves_status_and_chain(mock_client_cls, config):
+    """ResponseError from ollama must surface status + message and chain the cause."""
+    mock_client = MagicMock()
+    original = ollama_lib.ResponseError("input length exceeds context length", 400)
+    mock_client.embed.side_effect = original
+    mock_client_cls.return_value = mock_client
+
+    emb = OllamaEmbedding(config)
+    with pytest.raises(ConnectionError) as excinfo:
+        emb.embed("oversized input")
+
+    message = str(excinfo.value)
+    assert "status=400" in message
+    assert "input length exceeds context length" in message
+    # Original ResponseError must be chained via `raise ... from err`
+    assert excinfo.value.__cause__ is original
+    assert isinstance(excinfo.value.__cause__, ollama_lib.ResponseError)
+
+
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
+def test_connection_level_error_still_generic(mock_client_cls, config):
+    """Non-ResponseError failures still surface as 'Cannot reach Ollama'."""
+    mock_client = MagicMock()
+    mock_client.embed.side_effect = Exception("Connection refused")
+    mock_client_cls.return_value = mock_client
+
+    emb = OllamaEmbedding(config)
+    with pytest.raises(ConnectionError, match="Cannot reach Ollama"):
+        emb.embed("hello")
+
+
+@patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
+def test_embed_batch_response_error_preserves_detail(mock_client_cls, config):
+    """Batch path also preserves ResponseError status + message."""
+    mock_client = MagicMock()
+    original = ollama_lib.ResponseError("model not found", 404)
+    mock_client.embed.side_effect = original
+    mock_client_cls.return_value = mock_client
+
+    emb = OllamaEmbedding(config)
+    with pytest.raises(ConnectionError) as excinfo:
+        emb.embed_batch(["a", "b"])
+
+    assert "status=404" in str(excinfo.value)
+    assert "model not found" in str(excinfo.value)
+    assert excinfo.value.__cause__ is original
 
 
 @patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client")
