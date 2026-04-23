@@ -41,11 +41,15 @@ done < <(find "$CODE_ROOT" -maxdepth "$MAX_DEPTH" -name ".git" -type d 2>/dev/nu
 echo "Found ${#repos[@]} repositories."
 echo ""
 
+failed=0
+total=0
+
 for repo in "${repos[@]}"; do
     name="$(basename "$repo")"
+    total=$((total+1))
     echo "Indexing: ${name} (${repo})"
 
-    "${VENV_PYTHON}" -c "
+    if ! "${VENV_PYTHON}" -c "
 import sys
 sys.path.insert(0, sys.argv[3])
 
@@ -80,9 +84,25 @@ chunks = index_codebase(
     progress=progress,
 )
 print(f'  Indexed {chunks} chunks.')
-" "$repo" "$name" "$PROJECT_DIR" || echo "  FAILED to index ${name}. Continuing..."
+" "$repo" "$name" "$PROJECT_DIR"; then
+        failed=$((failed+1))
+        echo "  FAILED to index ${name}. Continuing..." >&2
+        if [[ "${FAIL_FAST:-0}" == "1" ]]; then
+            echo "" >&2
+            echo "FAIL_FAST=1 set; aborting after first failure." >&2
+            echo "Indexed $((total-failed))/$total repos." >&2
+            exit 2
+        fi
+    fi
 
     echo ""
 done
+
+echo "Indexed $((total-failed))/$total repos."
+
+if (( failed > 0 )); then
+    echo "All done (with ${failed} failure(s))."
+    exit 1
+fi
 
 echo "All done."
