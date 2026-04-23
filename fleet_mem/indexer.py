@@ -9,6 +9,7 @@ from typing import Callable
 import structlog
 import xxhash
 
+from fleet_mem.config import Config
 from fleet_mem.embedding.base import Embedding
 from fleet_mem.splitter.ast_splitter import ASTChunk, split_ast, supported_languages
 from fleet_mem.splitter.file_scanner import scan_files
@@ -20,6 +21,100 @@ logger = structlog.get_logger(__name__)
 
 # Batch size for embedding calls
 _EMBED_BATCH_SIZE = 64
+
+
+def _cap_chunk_sizes(
+    chunks: list[ASTChunk | TextChunk],
+    max_chars: int,
+) -> list[ASTChunk | TextChunk]:
+    """Ensure no chunk exceeds ``max_chars`` characters.
+
+    Oversized chunks (typically large AST definitions or whole-file
+    fallback chunks for unsupported languages) are recursively subdivided
+    at the nearest newline boundary, falling back to the midpoint.
+    Line-number metadata is approximated by counting newlines in the
+    prefix; it may be slightly coarser than the original splitter
+    produces but remains monotonic and within the chunk's line range.
+
+    This is a safety net applied *after* the language-aware splitters so
+    that no individual chunk overruns the embed model's context window.
+    Tokenizer-aware chunking is future work; ``max_chars`` is a simple
+    character-based approximation (English text averages ~4 chars/token).
+    """
+    if max_chars <= 0:
+        return chunks
+
+    result: list[ASTChunk | TextChunk] = []
+    for chunk in chunks:
+        if len(chunk.content) <= max_chars:
+            result.append(chunk)
+            continue
+        result.extend(_split_oversized(chunk, max_chars))
+    return result
+
+
+def _split_oversized(
+    chunk: ASTChunk | TextChunk,
+    max_chars: int,
+) -> list[ASTChunk | TextChunk]:
+    """Recursively split ``chunk`` so every piece is <= ``max_chars``.
+
+    Prefers splitting on the newline nearest the midpoint; falls back
+    to a hard midpoint split for pathological single-line input.
+    """
+    content = chunk.content
+    if len(content) <= max_chars:
+        return [chunk]
+
+    # Pick a split point: newline closest to the midpoint, else midpoint.
+    mid = len(content) // 2
+    left_nl = content.rfind("\n", 0, mid)
+    right_nl = content.find("\n", mid)
+    if left_nl == -1 and right_nl == -1:
+        split_at = mid
+    elif left_nl == -1:
+        split_at = right_nl + 1
+    elif right_nl == -1:
+        split_at = left_nl + 1
+    else:
+        # pick whichever is nearer to mid
+        split_at = (left_nl + 1) if (mid - left_nl) <= (right_nl - mid) else (right_nl + 1)
+
+    if split_at <= 0 or split_at >= len(content):
+        split_at = mid
+
+    left_content = content[:split_at]
+    right_content = content[split_at:]
+
+    # Approximate line ranges by counting newlines in the prefix.
+    left_newlines = left_content.count("\n")
+    left_start_line = chunk.start_line
+    left_end_line = min(chunk.end_line, chunk.start_line + left_newlines)
+    right_start_line = left_end_line
+    right_end_line = chunk.end_line
+
+    def _rebuild(content: str, start_line: int, end_line: int) -> ASTChunk | TextChunk:
+        if isinstance(chunk, ASTChunk):
+            return ASTChunk(
+                content=content,
+                start_line=start_line,
+                end_line=end_line,
+                chunk_type=chunk.chunk_type,
+                name=chunk.name,
+                parent_name=chunk.parent_name,
+            )
+        return TextChunk(
+            content=content,
+            start_line=start_line,
+            end_line=end_line,
+            chunk_type=chunk.chunk_type,
+        )
+
+    left = _rebuild(left_content, left_start_line, left_end_line)
+    right = _rebuild(right_content, right_start_line, right_end_line)
+
+    return _split_oversized(left, max_chars) + _split_oversized(right, max_chars)
+
 
 ProgressCallback = Callable[[int, int, str], None]  # (current, total, message)
 
@@ -34,14 +129,25 @@ def _split_file(
     content: str,
     language: str,
     ast_languages: set[str],
+    max_chunk_chars: int | None = None,
 ) -> list[ASTChunk | TextChunk]:
-    """Split a file using AST or text splitter."""
+    """Split a file using AST or text splitter.
+
+    If ``max_chunk_chars`` is provided and > 0, any chunk whose
+    ``content`` exceeds the cap is recursively subdivided so the
+    downstream embed call cannot exceed the model's context window.
+    """
     if language in ast_languages:
         chunks = split_ast(content, language)
-        if chunks:
-            return chunks
-    # Fallback to text splitter
-    return split_text(content)
+        if not chunks:
+            chunks = split_text(content)
+    else:
+        # Fallback to text splitter
+        chunks = split_text(content)
+
+    if max_chunk_chars and max_chunk_chars > 0:
+        chunks = _cap_chunk_sizes(chunks, max_chunk_chars)
+    return chunks
 
 
 @dataclass
@@ -60,6 +166,8 @@ def index_files(
     file_paths: list[str],
     db: VectorDatabase,
     embedder: Embedding,
+    *,
+    config: Config | None = None,
 ) -> IndexFilesResult:
     """Index specific files into ChromaDB.
 
@@ -82,6 +190,8 @@ def index_files(
     dimension = embedder.get_dimension()
     db.create_collection(collection_name, dimension)
 
+    cfg = config or Config()
+    max_chunk_chars = cfg.max_chunk_chars
     ast_langs = set(supported_languages())
     all_docs: list[VectorDocument] = []
     files_succeeded = 0
@@ -103,7 +213,7 @@ def index_files(
 
             language = EXTENSION_MAP.get(suffix, "unknown")
 
-            chunks = _split_file(content, language, ast_langs)
+            chunks = _split_file(content, language, ast_langs, max_chunk_chars)
 
             for chunk in chunks:
                 metadata = {
@@ -168,6 +278,7 @@ def index_codebase(
     *,
     progress: ProgressCallback | None = None,
     extra_ignore_patterns: list[str] | None = None,
+    config: Config | None = None,
 ) -> int:
     """Index a codebase into ChromaDB.
 
@@ -189,6 +300,8 @@ def index_codebase(
     dimension = embedder.get_dimension()
     db.create_collection(collection_name, dimension)
 
+    cfg = config or Config()
+    max_chunk_chars = cfg.max_chunk_chars
     ast_langs = set(supported_languages())
 
     # Phase 1: Scan and split
@@ -201,7 +314,7 @@ def index_codebase(
             progress(idx + 1, total_files, f"Splitting {file_path.name}")
 
         rel_path = str(file_path.relative_to(root.resolve()))
-        chunks = _split_file(content, language, ast_langs)
+        chunks = _split_file(content, language, ast_langs, max_chunk_chars)
 
         for chunk in chunks:
             metadata = {

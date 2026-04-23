@@ -288,6 +288,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `FLEET_DB_PATH` | `~/.local/share/fleet-mem/fleet.db` | Fleet coordination database |
 | `SYNC_INTERVAL` | `300` | Background code index sync (seconds) |
 | `FILE_WATCHING` | `true` | Enable filesystem watching for near-instant sync |
+| `FLEET_MEM_MAX_CHUNK_CHARS` | `5000` | Max characters per embed chunk. Oversized chunks are recursively subdivided before hitting the embed model. Default (~1250 tokens for English) fits comfortably below a 2048-token context window. Lower this if using non-English content or a smaller-context embed model. |
 
 <br>
 
