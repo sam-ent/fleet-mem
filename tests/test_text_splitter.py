@@ -110,3 +110,30 @@ def test_split_text_long_overlap_handling():
     # Each chunk should have content
     for chunk in chunks:
         assert len(chunk.content) > 0
+
+
+def test_split_text_terminates_on_short_prefix_long_body():
+    """Regression: short first chunk followed by long no-newline body must terminate.
+
+    Previously converged to a fixed point (start=-300, end=0) and hung forever.
+    Reaching the assertion at all is the regression signal.
+    """
+    text = "a\n" + "x" * 50000
+    chunks = split_text(text, chunk_size=2500, overlap=300)
+    # Asserting that we return at all is the primary regression signal.
+    assert len(chunks) >= 1
+    # Reasonable upper bound — advance is at least (chunk_size - overlap) per iter.
+    assert len(chunks) <= (len(text) // (2500 - 300)) + 2
+
+
+def test_split_text_start_stays_nonnegative_after_small_first_chunk():
+    """Regression: short newline early forces end <= overlap, which would previously
+    drive start negative and trigger Python's negative-index rfind wrap.
+
+    If start went negative, earlier versions hung. Reaching this assertion = bug fixed.
+    """
+    text = "a\n" + "x" * 3000
+    chunks = split_text(text, chunk_size=2500, overlap=300)
+    assert len(chunks) >= 1
+    # Concatenated non-empty chunks should cover the full text (rough sanity).
+    assert sum(len(c.content) for c in chunks) >= len(text)

@@ -40,10 +40,12 @@ def split_text(
         end = min(start + chunk_size, len(text))
 
         # Try to break at a newline boundary
+        truncated_at_newline = False
         if end < len(text):
             newline_pos = text.rfind("\n", start, end)
-            if newline_pos > start:
+            if newline_pos >= 0 and newline_pos > start:
                 end = newline_pos + 1
+                truncated_at_newline = True
 
         chunk_text = text[start:end]
         if chunk_text.strip():
@@ -59,7 +61,13 @@ def split_text(
                 )
             )
 
-        # Move forward, accounting for overlap
-        start = end - overlap if end < len(text) else end
+        # Move forward, accounting for overlap.
+        # When the chunk ended at a natural newline boundary, skip overlap —
+        # the boundary is already a semantic break, and applying overlap when
+        # `end <= overlap` would create a new fixed point (start stays at 0).
+        if end < len(text):
+            start = end if truncated_at_newline else max(0, end - overlap)
+        else:
+            start = end
 
     return chunks
