@@ -22,6 +22,10 @@ class OllamaEmbedding(Embedding):
         """Embed a single text string."""
         try:
             response = self._client.embed(model=self._model, input=[text])
+        except ollama_lib.ResponseError as err:
+            raise ConnectionError(
+                f"Ollama request failed for model '{self._model}' (status={err.status_code}): {err}"
+            ) from err
         except Exception as exc:
             raise ConnectionError(
                 f"Cannot reach Ollama at {self._host}. "
@@ -40,6 +44,11 @@ class OllamaEmbedding(Embedding):
             chunk = texts[i : i + _BATCH_CHUNK_SIZE]
             try:
                 response = self._client.embed(model=self._model, input=chunk)
+            except ollama_lib.ResponseError as err:
+                raise ConnectionError(
+                    f"Ollama request failed for model '{self._model}' "
+                    f"(status={err.status_code}): {err}"
+                ) from err
             except Exception as exc:
                 raise ConnectionError(
                     f"Cannot reach Ollama at {self._host}. "
@@ -66,6 +75,10 @@ class OllamaEmbedding(Embedding):
         async_client = ollama_lib.AsyncClient(host=self._host)
         try:
             response = await async_client.embed(model=self._model, input=[text])
+        except ollama_lib.ResponseError as err:
+            raise ConnectionError(
+                f"Ollama request failed for model '{self._model}' (status={err.status_code}): {err}"
+            ) from err
         except Exception as exc:
             raise ConnectionError(
                 f"Cannot reach Ollama at {self._host}. "
@@ -85,6 +98,11 @@ class OllamaEmbedding(Embedding):
             chunk = texts[i : i + _BATCH_CHUNK_SIZE]
             try:
                 response = await async_client.embed(model=self._model, input=chunk)
+            except ollama_lib.ResponseError as err:
+                raise ConnectionError(
+                    f"Ollama request failed for model '{self._model}' "
+                    f"(status={err.status_code}): {err}"
+                ) from err
             except Exception as exc:
                 raise ConnectionError(
                     f"Cannot reach Ollama at {self._host}. "
