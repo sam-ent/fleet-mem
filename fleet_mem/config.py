@@ -79,6 +79,14 @@ class Config:
         )
     )
 
+    # Chunk size cap (characters) applied before embedding so chunks fit
+    # within the embed model's context window. Default 5000 chars is
+    # approximately 1250 tokens for typical English text, leaving
+    # comfortable headroom below a 2048-token model like nomic-embed-text.
+    max_chunk_chars: int = field(
+        default_factory=lambda: int(os.environ.get("FLEET_MEM_MAX_CHUNK_CHARS", "5000"))
+    )
+
     # Merkle sync
     merkle_path: Path = field(default=None)
     sync_interval_seconds: int = field(
