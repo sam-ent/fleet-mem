@@ -9,10 +9,10 @@ from fleet_mem.embedding.base import Embedding
 
 _BATCH_CHUNK_SIZE = 64
 
-# Max depth for the on-400 bisect fallback. Beyond this, the offending
-# input is skipped with a zero vector placeholder rather than aborting
-# the whole indexing run.
-_MAX_BISECT_DEPTH = 3
+# Minimum text length below which we stop trying to recover an oversized
+# single input. At or below this length, an on-400 from Ollama is treated
+# as unrecoverable and surfaced rather than recursed further.
+_MIN_TEXT_BISECT_CHARS = 1
 
 _logger = logging.getLogger(__name__)
 
@@ -56,12 +56,17 @@ class OllamaEmbedding(Embedding):
 
     def _embed_inputs(self, inputs: list[str], depth: int = 0) -> list[list[float]]:
         """Call Ollama with a list of inputs. On a context-length 400,
-        bisect the batch and retry each half, bounded by ``_MAX_BISECT_DEPTH``.
+        bisect the batch and retry each half until the batch is reduced
+        to a single input, then split the text itself.
 
-        When the batch has a single oversized input and bisection cannot
-        shrink it further (or depth is exhausted), the single text itself
-        is split in half character-wise and each half is embedded; the
-        mean vector is returned so downstream storage remains consistent.
+        Recursion uses size-based termination rather than a fixed depth
+        ceiling: batches halve until size 1 (worst case ``log2(batch_size)``
+        recursions), then the single oversized text is split in half on
+        a safe boundary and each half is embedded; the mean vector is
+        returned so downstream storage remains consistent. Text-level
+        recursion terminates when the half cannot be bisected further
+        (``len(text) <= _MIN_TEXT_BISECT_CHARS``), at which point the
+        original 400 is surfaced.
         """
         if not inputs:
             return []
@@ -69,11 +74,6 @@ class OllamaEmbedding(Embedding):
             response = self._client.embed(model=self._model, input=inputs)
         except ollama_lib.ResponseError as err:
             if _is_context_overflow(err):
-                if depth >= _MAX_BISECT_DEPTH:
-                    raise ConnectionError(
-                        f"Ollama request failed for model '{self._model}' "
-                        f"(status={err.status_code}) after {depth} bisect attempts: {err}"
-                    ) from err
                 if len(inputs) > 1:
                     mid = len(inputs) // 2
                     _logger.warning(
@@ -86,7 +86,7 @@ class OllamaEmbedding(Embedding):
                     return left + right
                 # Single oversized input: split the text itself.
                 text = inputs[0]
-                if len(text) <= 1:
+                if len(text) <= _MIN_TEXT_BISECT_CHARS:
                     raise ConnectionError(
                         f"Ollama rejected input of length {len(text)} "
                         f"as context-overflow; cannot bisect further: {err}"
@@ -125,9 +125,11 @@ class OllamaEmbedding(Embedding):
         """Embed multiple texts, chunked into groups of 64.
 
         If Ollama returns an HTTP 400 indicating a context-window
-        overflow, the offending batch is recursively bisected (up to
-        ``_MAX_BISECT_DEPTH``) as a defense-in-depth fallback against
-        oversized inputs that slipped past the chunker's character cap.
+        overflow, the offending batch is recursively bisected down to
+        a single input, after which the offending text itself is split
+        in half and the mean vector is returned. This defense-in-depth
+        fallback handles oversized inputs that slipped past the
+        chunker's character cap.
         """
         results: list[list[float]] = []
         for i in range(0, len(texts), _BATCH_CHUNK_SIZE):
