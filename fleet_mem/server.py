@@ -192,6 +192,14 @@ async def index_codebase(
 
                 ast_langs = set(supported_languages())
                 max_chunk_chars = config.max_chunk_chars
+                max_chunk_tokens = config.max_chunk_tokens
+                # Token-aware cap (issue #42): only ask for a tokenizer when
+                # the operator opted in via Config.max_chunk_tokens.
+                tokenizer = (
+                    embedder.get_tokenizer()
+                    if isinstance(max_chunk_tokens, int) and max_chunk_tokens > 0
+                    else None
+                )
                 root = Path(path).resolve()
                 changed_set = set(changed_files)
 
@@ -204,7 +212,14 @@ async def index_codebase(
                     # Single-source-of-truth chunker invocation: same helper used
                     # by index_files and index_codebase, so the cap from #34 is
                     # enforced here too. (Fixes #43.)
-                    chunks = _split_file(content, language, ast_langs, max_chunk_chars)
+                    chunks = _split_file(
+                        content,
+                        language,
+                        ast_langs,
+                        max_chunk_chars,
+                        tokenizer=tokenizer,
+                        max_chunk_tokens=max_chunk_tokens,
+                    )
                     for chunk in chunks:
                         meta = {
                             "file_path": rel,

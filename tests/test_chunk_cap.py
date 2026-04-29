@@ -152,3 +152,189 @@ def test_embed_non_overflow_400_not_bisected(mock_client_cls, config):
 
     assert "status=400" in str(excinfo.value)
     assert mock_client.embed.call_count == 1  # no bisect attempted
+
+
+# ---------------------------------------------------------------------------
+# Token-aware chunk cap (issue #42)
+# ---------------------------------------------------------------------------
+
+
+class _FakeEncoding:
+    """Minimal stand-in for HF ``tokenizers.Encoding`` (only ``.ids`` used)."""
+
+    def __init__(self, ids: list[int]):
+        self.ids = ids
+
+
+class _FakeTokenizer:
+    """Minimal stand-in for HF ``tokenizers.Tokenizer`` for unit tests.
+
+    Treats every non-whitespace character as 2 tokens — far stricter than a
+    real BPE tokenizer, which simulates dense content (where char-cap
+    underestimates token count) without depending on a real tokenizer.json.
+    """
+
+    def __init__(self, tokens_per_char: int = 2):
+        self.tokens_per_char = tokens_per_char
+
+    def encode(self, text: str) -> _FakeEncoding:
+        # 2 tokens per non-whitespace char; 1 per whitespace.
+        n = sum(self.tokens_per_char if not c.isspace() else 1 for c in text)
+        return _FakeEncoding(ids=list(range(n)))
+
+
+def test_token_aware_cap_when_tokenizer_loaded():
+    """A dense-content chunk that fits the char-cap but blows the token-cap
+    must be subdivided until every piece fits the token-cap (issue #42)."""
+    tok = _FakeTokenizer(tokens_per_char=2)
+    # 600 chars of dense content -> 1200 tokens with the fake tokenizer.
+    # Char-cap of 1000 alone would let this through; token-cap of 200 is
+    # the real bound that has to be enforced.
+    dense = "x" * 600
+    chunks = [TextChunk(content=dense, start_line=1, end_line=1)]
+
+    capped = _cap_chunk_sizes(
+        chunks,
+        max_chars=1000,
+        tokenizer=tok,
+        max_tokens=200,
+    )
+
+    assert len(capped) > 1, "expected token-cap to force subdivision"
+    for c in capped:
+        # Every produced chunk must be within the token-cap.
+        token_count = len(tok.encode(c.content).ids)
+        assert token_count <= 200, f"chunk has {token_count} tokens, exceeds cap=200"
+    # Round-tripping the content: the split is non-lossy.
+    assert "".join(c.content for c in capped) == dense
+
+
+def test_falls_back_to_char_cap_when_tokenizer_unavailable():
+    """If the embedder's get_tokenizer() returns None, the indexer must
+    keep using the char-cap (no crash, no over-aggressive splitting)."""
+    big = "x" * 50_000
+    chunks = [TextChunk(content=big, start_line=1, end_line=1)]
+
+    # tokenizer=None simulates "tokenizers package not installed" or
+    # "model not in mapping" or "HF load failed" — all the documented
+    # fallback paths in OllamaEmbedding.get_tokenizer().
+    capped = _cap_chunk_sizes(
+        chunks,
+        max_chars=5000,
+        tokenizer=None,
+        max_tokens=200,  # ignored when tokenizer is None
+    )
+
+    assert len(capped) > 1
+    for c in capped:
+        assert len(c.content) <= 5000
+    assert "".join(c.content for c in capped) == big
+
+
+def test_char_cap_alone_unchanged():
+    """Old config (no max_chunk_tokens) must produce identical behavior to
+    pre-#42 — proves backward compatibility."""
+    big = "x" * 50_000
+    chunks = [TextChunk(content=big, start_line=1, end_line=1)]
+
+    # Default kwargs (tokenizer=None, max_tokens=None): exactly the
+    # signature pre-#42 callers used.
+    capped_new = _cap_chunk_sizes(chunks, max_chars=5000)
+    capped_legacy = _cap_chunk_sizes(chunks, max_chars=5000, tokenizer=None, max_tokens=None)
+
+    assert len(capped_new) == len(capped_legacy)
+    for a, b in zip(capped_new, capped_legacy):
+        assert a.content == b.content
+    for c in capped_new:
+        assert len(c.content) <= 5000
+
+
+def test_token_cap_takes_precedence_over_char_cap_when_stricter():
+    """Both caps configured + token-cap is the stricter bound: every
+    output chunk must satisfy BOTH caps."""
+    tok = _FakeTokenizer(tokens_per_char=2)
+    # 4000 chars of dense content -> 8000 tokens. Char-cap of 5000 alone
+    # is fine, but token-cap of 100 forces aggressive subdivision.
+    dense = "x" * 4000
+    chunks = [TextChunk(content=dense, start_line=1, end_line=1)]
+
+    capped = _cap_chunk_sizes(
+        chunks,
+        max_chars=5000,
+        tokenizer=tok,
+        max_tokens=100,
+    )
+
+    for c in capped:
+        assert len(c.content) <= 5000  # char-cap
+        token_count = len(tok.encode(c.content).ids)
+        assert token_count <= 100  # token-cap (stricter)
+
+
+def test_split_file_threads_tokenizer_through():
+    """_split_file must apply the token-cap when both tokenizer and
+    max_chunk_tokens are supplied via kwargs (the path indexer/server uses)."""
+    tok = _FakeTokenizer(tokens_per_char=2)
+    # 800 chars => 1600 tokens; well under char-cap=10000 but well over
+    # token-cap=200, so token-aware splitting is what catches it.
+    text = "y" * 800
+    chunks = _split_file(
+        content=text,
+        language="unknown",
+        ast_languages=set(),
+        max_chunk_chars=10000,
+        tokenizer=tok,
+        max_chunk_tokens=200,
+    )
+    assert chunks
+    for c in chunks:
+        assert len(tok.encode(c.content).ids) <= 200
+
+
+def test_ollama_embedding_get_tokenizer_default_no_mapping(config):
+    """OllamaEmbedding.get_tokenizer() returns None for unknown models
+    (graceful char-cap fallback, no exception)."""
+    config.ollama_embed_model = "totally-made-up-model-xyz"
+    with patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client"):
+        emb = OllamaEmbedding(config)
+        assert emb.get_tokenizer() is None
+        # Cached: a second call hits the cached None, no log spam.
+        assert emb.get_tokenizer() is None
+
+
+def test_ollama_embedding_get_tokenizer_handles_load_failure(config):
+    """If Tokenizer.from_pretrained raises (network / no cached file),
+    get_tokenizer returns None rather than propagating — keeps char-cap usable."""
+    config.ollama_embed_model = "all-minilm"
+    with patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client"):
+        emb = OllamaEmbedding(config)
+        with patch(
+            "tokenizers.Tokenizer.from_pretrained",
+            side_effect=RuntimeError("simulated network failure"),
+        ):
+            assert emb.get_tokenizer() is None
+
+
+def test_ollama_embedding_get_tokenizer_strips_tag(config):
+    """``model:tag`` (e.g. ``nomic-embed-text:latest``) maps the same as
+    bare ``nomic-embed-text``. Returned object is whatever the patched
+    Tokenizer.from_pretrained yields — we just check the mapping path."""
+    config.ollama_embed_model = "all-minilm:latest"
+    sentinel = object()
+    with patch("fleet_mem.embedding.ollama_embed.ollama_lib.Client"):
+        emb = OllamaEmbedding(config)
+        with patch("tokenizers.Tokenizer.from_pretrained", return_value=sentinel) as m:
+            result = emb.get_tokenizer()
+            assert result is sentinel
+            # Called with the bare HF id (suffix stripped, mapping applied).
+            m.assert_called_once_with("sentence-transformers/all-MiniLM-L6-v2")
+
+
+def test_default_embedding_get_tokenizer_returns_none():
+    """The base ``Embedding`` class default returns None — providers
+    without a known model->tokenizer mapping keep working unchanged."""
+    from fleet_mem.embedding.openai_compat import OpenAICompatibleEmbedding
+
+    with patch("openai.OpenAI"):
+        emb = OpenAICompatibleEmbedding(api_key="fake", model="text-embedding-3-small")
+    assert emb.get_tokenizer() is None
