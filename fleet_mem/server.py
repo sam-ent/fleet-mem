@@ -185,12 +185,13 @@ async def index_codebase(
             try:
                 import xxhash
 
-                from .splitter.ast_splitter import split_ast, supported_languages
+                from .indexer import _split_file
+                from .splitter.ast_splitter import supported_languages
                 from .splitter.file_scanner import scan_files
-                from .splitter.text_splitter import split_text
                 from .vectordb.types import VectorDocument
 
                 ast_langs = set(supported_languages())
+                max_chunk_chars = config.max_chunk_chars
                 root = Path(path).resolve()
                 changed_set = set(changed_files)
 
@@ -200,12 +201,10 @@ async def index_codebase(
                     rel = str(file_path.relative_to(root))
                     if rel not in changed_set:
                         continue
-                    if language in ast_langs:
-                        chunks = split_ast(content, language)
-                    else:
-                        chunks = []
-                    if not chunks:
-                        chunks = split_text(content)
+                    # Single-source-of-truth chunker invocation: same helper used
+                    # by index_files and index_codebase, so the cap from #34 is
+                    # enforced here too. (Fixes #43.)
+                    chunks = _split_file(content, language, ast_langs, max_chunk_chars)
                     for chunk in chunks:
                         meta = {
                             "file_path": rel,
