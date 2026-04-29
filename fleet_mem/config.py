@@ -87,6 +87,25 @@ class Config:
         default_factory=lambda: int(os.environ.get("FLEET_MEM_MAX_CHUNK_CHARS", "5000"))
     )
 
+    # Optional token-aware cap (issue #42). When set AND the embed model's
+    # tokenizer is loadable (via the `tokenizer-aware` extra), the chunker
+    # subdivides chunks until each fits within ``max_chunk_tokens`` tokens
+    # for the model's tokenizer — a stricter, content-aware bound than the
+    # char-cap. Defaults to ``None`` (disabled), preserving existing behavior:
+    # users on the char-cap path are unaffected.
+    #
+    # Recommended values: ~80% of the model's max position embeddings.
+    # Examples: ``all-minilm`` (512 tok) -> 400; ``nomic-embed-text``
+    # (2048 tok) -> 1600. If both caps are set, the token cap is applied
+    # alongside the char cap (each chunk must satisfy both).
+    max_chunk_tokens: int | None = field(
+        default_factory=lambda: (
+            int(os.environ["FLEET_MEM_MAX_CHUNK_TOKENS"])
+            if os.environ.get("FLEET_MEM_MAX_CHUNK_TOKENS")
+            else None
+        )
+    )
+
     # Merkle sync
     merkle_path: Path = field(default=None)
     sync_interval_seconds: int = field(

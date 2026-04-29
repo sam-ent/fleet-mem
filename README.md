@@ -289,6 +289,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `SYNC_INTERVAL` | `300` | Background code index sync (seconds) |
 | `FILE_WATCHING` | `true` | Enable filesystem watching for near-instant sync |
 | `FLEET_MEM_MAX_CHUNK_CHARS` | `5000` | Max characters per embed chunk. Oversized chunks are recursively subdivided before hitting the embed model. Default (~1250 tokens for English) fits comfortably below a 2048-token context window. Lower this if using non-English content or a smaller-context embed model. |
+| `FLEET_MEM_MAX_CHUNK_TOKENS` | _unset_ | **Optional, opt-in (issue #42).** Max tokens per embed chunk, measured with the embed model's actual tokenizer. When set, the chunker subdivides chunks until each fits within this token cap **in addition to** the char cap. Recommended: ~80% of the model's max position embeddings (e.g. `400` for `all-minilm` (512 tok), `1600` for `nomic-embed-text` (2048 tok)). Requires the `tokenizer-aware` extra: `pip install fleet-mem[tokenizer-aware]`. Falls back silently to the char cap if the `tokenizers` package is missing, the model is not in the built-in mapping (`all-minilm`, `nomic-embed-text`, `mxbai-embed-large`, `bge-large`, `bge-m3`, `snowflake-arctic-embed`), or the HF tokenizer fails to load. Use this to eliminate the `O(log)`-per-chunk bisect+mean-vector recovery overhead on dense content (code, non-English text, base64-like blobs) where char-cap alone underestimates token count. |
 
 <br>
 

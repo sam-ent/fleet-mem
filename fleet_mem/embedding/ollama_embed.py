@@ -1,11 +1,17 @@
 """Ollama embedding adapter."""
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 import ollama as ollama_lib
 
 from fleet_mem.config import Config
 from fleet_mem.embedding.base import Embedding
+
+if TYPE_CHECKING:
+    from tokenizers import Tokenizer
 
 _BATCH_CHUNK_SIZE = 64
 
@@ -13,6 +19,21 @@ _BATCH_CHUNK_SIZE = 64
 # single input. At or below this length, an on-400 from Ollama is treated
 # as unrecoverable and surfaced rather than recursed further.
 _MIN_TEXT_BISECT_CHARS = 1
+
+# Mapping from Ollama embed model names (with optional ``:tag`` suffix
+# stripped) to HuggingFace tokenizer ids. Used by ``get_tokenizer`` for
+# the token-aware chunk-cap path (issue #42). Keep small; unknown models
+# fall back to char-cap by returning ``None``. Adding a model here is a
+# lightweight way to enable token-aware capping for it; the assumption is
+# that the Ollama distribution and the HF model use the same tokenizer.
+_OLLAMA_TO_HF_TOKENIZER: dict[str, str] = {
+    "all-minilm": "sentence-transformers/all-MiniLM-L6-v2",
+    "nomic-embed-text": "nomic-ai/nomic-embed-text-v1",
+    "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",
+    "bge-large": "BAAI/bge-large-en-v1.5",
+    "bge-m3": "BAAI/bge-m3",
+    "snowflake-arctic-embed": "Snowflake/snowflake-arctic-embed-l",
+}
 
 _logger = logging.getLogger(__name__)
 
@@ -34,6 +55,12 @@ class OllamaEmbedding(Embedding):
         self._host = cfg.ollama_host
         self._client = ollama_lib.Client(host=self._host)
         self._dimension: int | None = None
+        # Cached tokenizer for the token-aware chunk-cap path (issue #42).
+        # ``None`` is a valid cached state meaning "no tokenizer available".
+        # We use a sentinel to distinguish "not yet attempted" from "tried
+        # and gave up" so we don't pay the load cost or log warnings twice.
+        self._tokenizer_loaded: bool = False
+        self._tokenizer: Any | None = None
 
     def embed(self, text: str) -> list[float]:
         """Embed a single text string."""
@@ -145,6 +172,58 @@ class OllamaEmbedding(Embedding):
 
     def get_provider(self) -> str:
         return f"ollama/{self._model}"
+
+    def get_tokenizer(self) -> "Tokenizer | None":
+        """Lazy-load and return the HF tokenizer for ``self._model``, or None.
+
+        The mapping from Ollama model name to HF tokenizer id lives in
+        ``_OLLAMA_TO_HF_TOKENIZER``. Returns ``None`` (and warns once) if:
+          - the ``tokenizers`` package isn't installed (optional dep);
+          - the active model isn't in the mapping;
+          - the tokenizer can't be fetched (network error / no cached
+            tokenizer.json on disk in offline environments).
+
+        Result is cached so loading is attempted at most once per
+        ``OllamaEmbedding`` instance. Callers should treat ``None`` as
+        "fall back to char-cap".
+        """
+        if self._tokenizer_loaded:
+            return self._tokenizer
+        self._tokenizer_loaded = True
+
+        # Strip ``:tag`` suffix (e.g. ``nomic-embed-text:latest`` -> ``nomic-embed-text``).
+        base = self._model.split(":", 1)[0]
+        hf_id = _OLLAMA_TO_HF_TOKENIZER.get(base)
+        if hf_id is None:
+            _logger.info(
+                "ollama: no HF tokenizer mapping for model '%s'; "
+                "token-aware chunk cap unavailable, falling back to char-cap",
+                self._model,
+            )
+            return None
+
+        try:
+            from tokenizers import Tokenizer
+        except ImportError:
+            _logger.info(
+                "ollama: 'tokenizers' package not installed; install "
+                "fleet-mem[tokenizer-aware] to enable token-aware chunk cap"
+            )
+            return None
+
+        try:
+            self._tokenizer = Tokenizer.from_pretrained(hf_id)
+        except Exception as exc:
+            # Network-blocked / auth-required / HF outage / model not on hub.
+            _logger.warning(
+                "ollama: failed to load HF tokenizer '%s' for model '%s' "
+                "(%s); falling back to char-cap",
+                hf_id,
+                self._model,
+                exc,
+            )
+            self._tokenizer = None
+        return self._tokenizer
 
     async def aembed(self, text: str) -> list[float]:
         """Async embed a single text string."""

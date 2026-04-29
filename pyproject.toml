@@ -56,6 +56,14 @@ monitor = [
     "textual>=0.50.0",
     "httpx>=0.25.0",
 ]
+tokenizer-aware = [
+    # Optional: enable token-aware chunk-cap enforcement (issue #42).
+    # The HF `tokenizers` Rust port (~5MB, no torch) lets the chunker count
+    # tokens directly via the embed model's tokenizer rather than relying on
+    # a char-cap approximation. Falls back to char-cap if absent or load
+    # fails (e.g., offline environments without a cached tokenizer.json).
+    "tokenizers>=0.15",
+]
 
 [project.scripts]
 fleet-mem = "fleet_mem.cli:main"
