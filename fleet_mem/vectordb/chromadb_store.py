@@ -35,12 +35,22 @@ class ChromaDBStore(VectorDatabase):
                 "Embed documents before inserting."
             )
 
+        # Dedupe by ID, last-wins semantics. ChromaDB's upsert rejects intra-batch
+        # duplicate IDs, but the chunker can legitimately emit chunks with identical
+        # (path, start_line, end_line) tuples — e.g., AST nested nodes or overlapping
+        # tree-sitter spans. Without this guard, a single duplicate aborts the entire
+        # repo's final-batch insert with DuplicateIDError, losing all in-flight work.
+        seen: dict[str, VectorDocument] = {}
+        for d in documents:
+            seen[d.id] = d  # last-wins on duplicate id
+        deduped = list(seen.values())
+
         col = self._client.get_collection(name=collection)
         col.upsert(
-            ids=[d.id for d in documents],
-            documents=[d.content for d in documents],
-            embeddings=[d.vector for d in documents],
-            metadatas=[d.metadata if d.metadata else None for d in documents],
+            ids=[d.id for d in deduped],
+            documents=[d.content for d in deduped],
+            embeddings=[d.vector for d in deduped],
+            metadatas=[d.metadata if d.metadata else None for d in deduped],
         )
 
     def search(
