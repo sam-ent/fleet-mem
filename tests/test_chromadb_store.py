@@ -97,3 +97,46 @@ def test_insert_missing_vector_raises(store):
     store.create_collection("docs", dimension=DIM)
     with pytest.raises(ValueError, match="missing pre-computed vectors"):
         store.insert("docs", [VectorDocument(id="1", content="a")])
+
+
+def test_insert_dedupes_intra_batch_duplicate_ids(store):
+    """Intra-batch duplicate IDs must not raise; last-wins semantics persist."""
+    store.create_collection("docs", dimension=DIM)
+    docs = [
+        VectorDocument(
+            id="dup", content="first version", metadata={"version": "1"}, vector=_vec(1.0)
+        ),
+        VectorDocument(
+            id="dup", content="last version", metadata={"version": "2"}, vector=_vec(2.0)
+        ),
+        VectorDocument(id="distinct", content="other", metadata={"version": "1"}, vector=_vec(3.0)),
+    ]
+    # Without the dedupe shim, this raises chromadb.errors.DuplicateIDError.
+    store.insert("docs", docs)
+
+    # Both unique IDs persist (no batch abort).
+    assert store.count("docs") == 2
+
+    # Last-wins: the second "dup" entry overrode the first.
+    results = store.search("docs", vector=_vec(2.0), limit=10)
+    by_id = {r["id"]: r for r in results}
+    assert "dup" in by_id
+    assert by_id["dup"]["content"] == "last version"
+    assert by_id["dup"]["metadata"]["version"] == "2"
+    assert "distinct" in by_id
+    assert by_id["distinct"]["content"] == "other"
+
+
+def test_insert_preserves_distinct_ids(store):
+    """Batches with all-distinct IDs must persist every document."""
+    store.create_collection("docs", dimension=DIM)
+    docs = [
+        VectorDocument(id="a", content="alpha", vector=_vec(1.0)),
+        VectorDocument(id="b", content="bravo", vector=_vec(2.0)),
+        VectorDocument(id="c", content="charlie", vector=_vec(3.0)),
+    ]
+    store.insert("docs", docs)
+
+    assert store.count("docs") == 3
+    results = store.search("docs", vector=_vec(1.0), limit=10)
+    assert {r["id"] for r in results} == {"a", "b", "c"}
