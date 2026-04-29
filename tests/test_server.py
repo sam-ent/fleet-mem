@@ -905,3 +905,89 @@ class TestStaleCheck:
         assert results[0]["memory_id"] == "mem1"
         assert results[0]["stored_hash"] == "aaa"
         assert results[0]["current_hash"] == "bbb"
+
+
+# ---------------------------------------------------------------------------
+# Regression: branch-indexing path enforces max_chunk_chars cap (#43)
+# ---------------------------------------------------------------------------
+
+
+class TestBranchIndexingCapEnforced:
+    """Regression for #43: _run_branch must use _split_file so the
+    max_chunk_chars cap (added in #34) is enforced on the branch path,
+    matching index_codebase / index_files behaviour.
+    """
+
+    @pytest.mark.asyncio
+    async def test_oversized_file_chunks_capped_on_branch_path(self, _patch_deps, tmp_path):
+        from fleet_mem.server import index_codebase
+
+        # Configure a small cap so a single oversized file produces
+        # multiple post-cap chunks.
+        max_chunk_chars = 200
+        _patch_deps["config"].max_chunk_chars = max_chunk_chars
+
+        # Build an oversized text file (no AST language, so split_text
+        # path is taken — historically that produced one giant chunk
+        # from a small file, bypassing the cap on the branch path).
+        oversized_content = ("x" * 50 + "\n") * 40  # ~2040 chars
+        scanned = [
+            (tmp_path / "big.txt", "text", oversized_content),
+        ]
+
+        # Mock BranchIndex so we don't need a real git checkout.
+        mock_bi = MagicMock()
+        mock_bi.get_changed_files.return_value = ["big.txt"]
+        mock_bi.index_branch.return_value = 0  # filled in by closure
+
+        # Run _run_branch synchronously by hijacking threading.Thread.
+        captured = {"docs": None}
+
+        def _capture_index_branch(branch, files, docs):
+            captured["docs"] = list(docs)
+            return len(docs)
+
+        mock_bi.index_branch.side_effect = _capture_index_branch
+
+        with (
+            patch("fleet_mem.fleet.branch_index.BranchIndex", return_value=mock_bi),
+            patch(
+                "fleet_mem.splitter.file_scanner.scan_files",
+                return_value=iter(scanned),
+            ),
+            patch("fleet_mem.server.threading") as mock_threading,
+        ):
+            # Run target synchronously instead of in a real thread so
+            # we can assert on side effects.
+            def _fake_thread(target, daemon=False):
+                t = MagicMock()
+                t.start.side_effect = lambda: target()
+                return t
+
+            mock_threading.Thread.side_effect = _fake_thread
+            mock_threading.Lock.return_value = MagicMock()
+
+            result = await index_codebase(
+                path=str(tmp_path),
+                branch="feat/test-cap",
+            )
+
+        assert result["status"] in ("indexing", "no_changes")
+        assert captured["docs"] is not None, "_run_branch did not reach index_branch"
+
+        # Every emitted document's payload (which prepends a small
+        # header) must be at most cap + a small header allowance.
+        # The chunk content itself is what the cap governs; we assert
+        # on chunk-content length by stripping the deterministic header.
+        header_overhead = 64  # generous bound for "# big.txt (Lx-Ly)\n"
+        for doc in captured["docs"]:
+            assert len(doc.content) <= max_chunk_chars + header_overhead, (
+                f"branch-indexed doc exceeds cap: {len(doc.content)} > "
+                f"{max_chunk_chars} + {header_overhead}"
+            )
+
+        # Also: at least 2 chunks were emitted, proving the cap actually
+        # subdivided the oversized file (vs. silently passing it through).
+        assert len(captured["docs"]) >= 2, (
+            "expected oversized file to be subdivided by _cap_chunk_sizes"
+        )
