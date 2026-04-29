@@ -332,9 +332,26 @@ def test_ollama_embedding_get_tokenizer_strips_tag(config):
 
 def test_default_embedding_get_tokenizer_returns_none():
     """The base ``Embedding`` class default returns None — providers
-    without a known model->tokenizer mapping keep working unchanged."""
-    from fleet_mem.embedding.openai_compat import OpenAICompatibleEmbedding
+    that don't override ``get_tokenizer`` keep working unchanged.
 
-    with patch("openai.OpenAI"):
-        emb = OpenAICompatibleEmbedding(api_key="fake", model="text-embedding-3-small")
+    Uses a minimal in-test subclass to avoid pulling in optional
+    third-party deps (e.g. ``openai``) just to exercise the default.
+    """
+    from fleet_mem.embedding.base import Embedding
+
+    class _MinimalEmbedding(Embedding):
+        def embed(self, text: str) -> list[float]:
+            return [0.0]
+
+        def embed_batch(self, texts: list[str]) -> list[list[float]]:
+            return [[0.0] for _ in texts]
+
+        def get_dimension(self) -> int:
+            return 1
+
+        def get_provider(self) -> str:
+            return "test/minimal"
+
+    emb = _MinimalEmbedding()
+    # Default ABC implementation returns None — no override needed.
     assert emb.get_tokenizer() is None
