@@ -416,6 +416,16 @@ class FleetMonitorApp(App):
         # === Subscriptions tree (grouped by agent) ===
         try:
             tree = self.query_one("#subs-tree", Tree)
+
+            # Preserve the user's expansion state across polls. Without this,
+            # tree.clear() below wipes the expanded set on every refresh tick
+            # and any node the user just opened collapses on the next poll.
+            expanded_labels = {
+                str(child.label)
+                for child in tree.root.children
+                if child.is_expanded
+            }
+
             tree.clear()
 
             # Group by agent
@@ -427,9 +437,10 @@ class FleetMonitorApp(App):
                 subs_by_agent.setdefault(aid, []).append(sub.get("file_pattern", ""))
 
             for aid, patterns in sorted(subs_by_agent.items(), key=lambda x: -len(x[1])):
+                label = f"{aid} ({len(patterns)} files)"
                 node = tree.root.add(
-                    f"{aid} ({len(patterns)} files)",
-                    expand=False,
+                    label,
+                    expand=label in expanded_labels,
                     allow_expand=True,
                 )
                 for p in sorted(patterns):
