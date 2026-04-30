@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Click-to-copy on monitor cells and tree nodes** (#56) — single-click on
+  any DataTable cell (Agents / Locks / Notifications tabs) copies the cell's
+  text to the system clipboard via OSC 52. Single-click on a Subscriptions
+  tree leaf copies the file pattern; clicking a parent group (`agent-xyz
+  (N files)`) copies just the agent ID. A short `Copied: <value>` toast
+  confirms each copy and clears after ~2s. Works in any OSC 52-supporting
+  terminal (iTerm2, kitty, alacritty, wezterm, recent gnome-terminal /
+  Konsole) and survives SSH.
 - **Dashboard DB read/write health indicator** (#54) — the monitor's Dashboard
   tab now shows a per-datastore health line (`ChromaDB ✓ R/W  Memory ✓ R/W
   Fleet ✓ R/W  Cache ✓ R/W`). Read health is the existing `try/except` around

@@ -118,6 +118,13 @@ class FleetMonitorApp(App):
     #log-pane {
         height: 1fr;
     }
+    #copy-toast {
+        dock: bottom;
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        background: $panel;
+    }
     """
 
     BINDINGS = [
@@ -164,6 +171,7 @@ class FleetMonitorApp(App):
                 yield DataTable(id="notifs-table")
             with TabPane("Log", id="tab-log"):
                 yield RichLog(markup=True, auto_scroll=True, max_lines=500, id="live-log")
+        yield Label("", id="copy-toast")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -250,6 +258,61 @@ class FleetMonitorApp(App):
             log.write(f"[dim]{now}[/] [{color}]{level:>6}[/]  {message}")
         except Exception:
             pass
+
+    def _copy_text(self, text: str) -> None:
+        """Copy text to the system clipboard via OSC 52 and flash a toast."""
+        if not text:
+            return
+        try:
+            self.copy_to_clipboard(text)
+        except Exception:
+            return
+        display = text if len(text) <= 60 else text[:57] + "..."
+        try:
+            toast = self.query_one("#copy-toast", Label)
+            toast.update(f"[bold cyan]Copied:[/] {display}")
+        except Exception:
+            return
+        # Replace any pending clear-timer with a fresh one so rapid copies
+        # keep the toast visible until the user pauses.
+        prev = getattr(self, "_toast_timer", None)
+        if prev is not None:
+            try:
+                prev.stop()
+            except Exception:
+                pass
+        self._toast_timer = self.set_timer(2.0, self._clear_copy_toast)
+
+    def _clear_copy_toast(self) -> None:
+        try:
+            self.query_one("#copy-toast", Label).update("")
+        except Exception:
+            pass
+
+    def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
+        """Single-click on any DataTable cell copies its text to the clipboard."""
+        value = event.value
+        # Cells may hold rich.Text objects (styled) or plain strings.
+        text = getattr(value, "plain", None)
+        if text is None:
+            text = "" if value is None else str(value)
+        self._copy_text(text)
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Single-click on a tree node copies its text.
+
+        For Subscriptions parent groups (label `agent-xyz (N files)`), copy
+        just the agent ID — the count is a UI affordance, not data the user
+        wants on the clipboard.
+        """
+        node = event.node
+        if node.parent is None:
+            return  # the (hidden) root
+        label = str(node.label)
+        if node.children:
+            # parent: strip trailing "(N files)" or any " (...)" suffix
+            label = label.rsplit(" (", 1)[0]
+        self._copy_text(label)
 
     def _poll(self) -> None:
         stats = fetch_stats(sock_path=self._sock_path, detail=True)
