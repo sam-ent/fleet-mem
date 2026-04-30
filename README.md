@@ -281,7 +281,7 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model name. **Switching this between models with different output dimensions requires dropping affected collections — see [Switching embed models](#switching-embed-models) below.** |
 | `EMBEDDING_PROVIDER` | `ollama` | Provider: `ollama` or `openai-compat` |
 | `CHROMA_PATH` | `~/.local/share/fleet-mem/chroma` | ChromaDB storage |
 | `MEMORY_DB_PATH` | `~/.local/share/fleet-mem/memory.db` | Agent memory database |
@@ -290,6 +290,29 @@ All settings via environment variables or a `.env` file in the project root. Cop
 | `FILE_WATCHING` | `true` | Enable filesystem watching for near-instant sync |
 | `FLEET_MEM_MAX_CHUNK_CHARS` | `5000` | Max characters per embed chunk. Oversized chunks are recursively subdivided before hitting the embed model. Default (~1250 tokens for English) fits comfortably below a 2048-token context window. Lower this if using non-English content or a smaller-context embed model. |
 | `FLEET_MEM_MAX_CHUNK_TOKENS` | _unset_ | **Optional, opt-in (issue #42).** Max tokens per embed chunk, measured with the embed model's actual tokenizer. When set, the chunker subdivides chunks until each fits within this token cap **in addition to** the char cap. Recommended: ~80% of the model's max position embeddings (e.g. `400` for `all-minilm` (512 tok), `1600` for `nomic-embed-text` (2048 tok)). Requires the `tokenizer-aware` extra: `pip install fleet-mem[tokenizer-aware]`. Falls back silently to the char cap if the `tokenizers` package is missing, the model is not in the built-in mapping (`all-minilm`, `nomic-embed-text`, `mxbai-embed-large`, `bge-large`, `bge-m3`, `snowflake-arctic-embed`), or the HF tokenizer fails to load. Use this to eliminate the `O(log)`-per-chunk bisect+mean-vector recovery overhead on dense content (code, non-English text, base64-like blobs) where char-cap alone underestimates token count. |
+
+<br>
+
+### Switching embed models
+
+ChromaDB collections are **dim-locked at creation** — the vector dimension is fixed when a collection is first created and cannot change. If you switch `OLLAMA_EMBED_MODEL` (or `EMBED_MODEL` for cloud providers) to a model with a different output dimension (e.g. `all-minilm` 384-dim ↔ `nomic-embed-text` 768-dim), fleet-mem detects the mismatch on the affected collection's next insert or query and raises `fleet_mem.vectordb.errors.DimMismatchError` (added in #47).
+
+The exception carries `model_name`, `model_dim`, `collection_name`, and `collection_dim` for programmatic recovery (e.g. an automated re-indexer that catches the error and decides whether to drop + rebuild).
+
+To switch models cleanly, drop the affected collections and re-index:
+
+```python
+# Drop a single project's index via the MCP tool
+clear_index(path="/path/to/project")
+```
+
+Or, for a wholesale reset, remove the on-disk ChromaDB directory and let fleet-mem re-create collections at the new dim on next index:
+
+```bash
+rm -rf ~/.local/share/fleet-mem/chroma/
+```
+
+Without dim-mismatch detection the failure mode would be either a late ChromaDB error during inserts (recoverable but wasteful) or — worse — silent garbage retrieval at query time, since cosine distance against mismatched-dim vectors is meaningless. `DimMismatchError` exists to fail fast and steer you to a clean recovery path.
 
 <br>
 
@@ -317,6 +340,53 @@ For fast-moving multi-agent work, reduce `SYNC_INTERVAL` to `30`-`60`. File-watc
 | `scripts/index-repos.sh` | Find git repos under a root directory and index each one |
 | `scripts/import-flat-files.py` | Import existing memory files (markdown with YAML frontmatter) |
 | `scripts/embed-existing-nodes.py` | Embed existing memory DB nodes into ChromaDB for semantic search |
+
+<br>
+
+#### `scripts/index-repos.sh`
+
+Iterates git repositories under `--root` (max depth 2) and indexes each one. Per-repo failures don't halt the loop by default — the script prints `FAILED to index <name>. Continuing...` and moves on to the next repo. After all repos are attempted, it prints an `Indexed N/M repos.` summary and exits non-zero if any repo failed (since #33).
+
+For CI / orchestration use cases that want to abort on the first failure, set `FAIL_FAST=1`:
+
+```bash
+FAIL_FAST=1 ./scripts/index-repos.sh --root ~/projects
+```
+
+Exit codes:
+
+- `0` — all repos indexed successfully
+- `1` — one or more repos failed (default mode finished attempting every repo)
+- `2` — `FAIL_FAST=1` triggered an early exit on the first failure
+
+---
+
+## Troubleshooting
+
+### `DimMismatchError` raised after switching embed models
+
+You changed `OLLAMA_EMBED_MODEL` (or `EMBED_MODEL`) to a model with a different output dimension. ChromaDB collections are dim-locked at creation. See [Switching embed models](#switching-embed-models) for the recovery path.
+
+### Indexer logs `ollama: context-length 400 on batch of N; bisecting (depth=...)`
+
+Normal recovery behavior. The chunker emitted a chunk that exceeds the embed model's token-context window — the embedder bisects the batch (and, if needed, splits the offending text and averages the resulting vectors) until each input fits. Indexing continues and no data is lost.
+
+If you see this frequently and want to eliminate the recovery overhead, switch to tokenizer-aware mode by setting `FLEET_MEM_MAX_CHUNK_TOKENS` (see Configuration). This trades a small `tokenizers` dependency for elimination of the bisect+mean-vector recovery path on dense content (code, non-English text, base64-like blobs).
+
+### `Already indexed (N chunks). Use --force to re-index.` on retry
+
+The `scripts/index-repos.sh` short-circuit: if a `code_<project>` collection already exists with chunks in it, the script skips re-indexing that repo. This is the correct behavior for incremental runs — fleet-mem's merkle-tracked sync (every `SYNC_INTERVAL` seconds) handles deltas separately. To force a full re-index of a specific project, drop its collection first:
+
+```python
+# Via the MCP tool
+clear_index(path="/path/to/project")
+```
+
+Then re-run `scripts/index-repos.sh`.
+
+### Indexer hangs without progress output
+
+The progress callback fires every 50 files. Most likely the chunker is processing a single very large file or a deeply-nested directory. If the run pauses between callbacks for more than a few minutes, attach `py-spy dump --pid <indexer-pid>` to inspect the Python stack. If reproducible, please open an issue with a minimal reproducer.
 
 ---
 
