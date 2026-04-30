@@ -41,6 +41,7 @@ class DashboardPanel(Container):
 
     def compose(self) -> ComposeResult:
         yield Label("Connecting...", id="stats-summary")
+        yield Label("", id="health-line")
         yield Label("", id="conflict-banner")
         with Horizontal(classes="sparkline-row"):
             with Container(classes="sparkline-box"):
@@ -90,6 +91,11 @@ class FleetMonitorApp(App):
     #conflict-banner {
         text-align: center;
         padding: 0 1;
+    }
+    #health-line {
+        text-align: center;
+        padding: 0 1;
+        color: $text-muted;
     }
     DataTable {
         height: 1fr;
@@ -294,6 +300,44 @@ class FleetMonitorApp(App):
                 f"Cache: [bold cyan]{stats.get('cached_embeddings', 0)}[/]  "
                 f"Server: [bold magenta]v{server_ver}[/]"
             )
+        except Exception:
+            pass
+
+        # === DB health line (read + write per datastore) ===
+        try:
+            health_label = self.query_one("#health-line", Label)
+            health = stats.get("health", {})
+            parts: list[str] = ["DB Health:"]
+            for key, display in (
+                ("chroma", "ChromaDB"),
+                ("memory_db", "Memory"),
+                ("fleet_db", "Fleet"),
+                ("embed_cache", "Cache"),
+            ):
+                h = health.get(key, {})
+                ok = bool(h.get("ok"))
+                writable = bool(h.get("writable"))
+                if ok and writable:
+                    glyph = "[bold green]✓ R/W[/]"
+                elif ok and not writable:
+                    glyph = "[bold yellow]✓ R / ✗ W[/]"
+                else:
+                    glyph = "[bold red]✗[/]"
+                parts.append(f"{display} {glyph}")
+            # Append first error (if any) so the user sees a hint without
+            # having to dig into JSON.
+            first_err = next(
+                (
+                    f"{name}: {h['error']}"
+                    for name, h in health.items()
+                    if h.get("error") and not h.get("ok")
+                ),
+                None,
+            )
+            line = "  ".join(parts)
+            if first_err:
+                line += f"  [dim red]({first_err})[/]"
+            health_label.update(line)
         except Exception:
             pass
 

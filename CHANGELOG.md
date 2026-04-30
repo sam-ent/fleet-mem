@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dashboard DB read/write health indicator** (#54) — the monitor's Dashboard
+  tab now shows a per-datastore health line (`ChromaDB ✓ R/W  Memory ✓ R/W
+  Fleet ✓ R/W  Cache ✓ R/W`). Read health is the existing `try/except` around
+  each query path; write health is a new `BEGIN IMMEDIATE; ROLLBACK;` probe on
+  each SQLite database (acquires a RESERVED lock without persisting any data,
+  ~1ms, no side effects). ChromaDB write health uses `os.access(path, W_OK)`
+  on its persistence directory. Failures are no longer silent — the first
+  error message is surfaced inline.
+- `health` subdict added to `get_fleet_stats()` return value (#54) with
+  per-component `{ok, writable, error}` entries.
+
 ### Fixed
 
 - **`scripts/setup.sh` MCP registration target** (#50) — the installer wrote
@@ -23,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block (#50). Previously these were collected interactively but only used at
   install time — runtime relied on `dotenv` walking up from the server's cwd
   to find a `.env`, which is unreliable across MCP clients.
+- **Subscriptions tab: tree expansion no longer collapses on every poll**
+  (#53) — `_render_data` previously called `tree.clear()` and rebuilt every
+  agent-group node with `expand=False` on every poll tick (default 2s),
+  blowing away any user-driven expansion within ~2 seconds of opening a
+  group. The render path now captures the set of expanded labels before
+  `clear()` and re-applies them on rebuild.
 
 ## [0.9.0] - 2026-04-30
 
