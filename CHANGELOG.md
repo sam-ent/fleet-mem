@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-04-30
+
+### Added
+
+- **Tokenizer-aware char-cap** (#45) — opt-in via the new `[tokenizer-aware]` extra
+  (`pip install fleet-mem[tokenizer-aware]`). Sets `Config.max_chunk_tokens` to
+  count tokens via the embed model's actual tokenizer instead of approximating
+  with characters. Falls back to char-cap when `tokenizers` is unavailable or
+  the model is unmapped. Eliminates the bisect-recovery overhead that the
+  char-cap path incurs on dense (non-English / code-heavy) content.
+- `Embedder.get_tokenizer()` protocol method (#45) — returns a `tokenizers.Tokenizer`
+  if the underlying model has a known HuggingFace tokenizer mapping; `None` otherwise.
+- `Config.max_chunk_tokens: int | None = None` field (#45) — when set + tokenizer
+  available, takes precedence over `max_chunk_chars`.
+- **`DimMismatchError` exception** (#47) in `fleet_mem.vectordb.errors` — raised
+  when an embed model's vector dimension doesn't match an existing ChromaDB
+  collection's stored dimension. Carries `model_name`, `model_dim`,
+  `collection_name`, `collection_dim` for programmatic recovery.
+
+### Fixed
+
+- **Embed-model dim-mismatch detection** (#47) — `ChromaDBStore.insert` and
+  `ChromaDBStore.search` now validate vector dimensions against collection
+  metadata before delegating to ChromaDB. Previously, switching embed models
+  between different output dimensions could either raise a late chromadb
+  error during inserts OR silently return ranked-but-meaningless results
+  during queries.
+- **Branch-indexing cap enforcement** (#44) — `_run_branch` in `fleet_mem.server`
+  now delegates to `indexer._split_file` for chunking, eliminating a duplicate
+  chunker invocation that bypassed the chunk-size cap added in #34. Cap
+  enforcement is now single-source-of-truth across `index_codebase`,
+  `index_files`, and the branch-indexing path.
+- **ChromaDB intra-batch ID collisions** (#41) — `ChromaDBStore.insert` now
+  dedupes documents by ID with last-wins semantics before delegating to
+  ChromaDB's upsert. Previously, `_chunk_id` collisions (e.g., from AST nested
+  nodes sharing line ranges) raised `DuplicateIDError` and aborted the entire
+  batch, losing all in-flight chunks for the run.
+- **Splitter infinite loop** (#36) — `splitter.split_text` previously could
+  converge to two distinct fixed points (`start=-300, end=0` and `start=0,
+  end=2`) on inputs with short prefix + long single-line body. Both fixed
+  points eliminated via a `truncated_at_newline` sentinel that skips overlap
+  at natural newline boundaries.
+- **Bisect depth + per-text fallback reachability** (#38) — embedder's bisect
+  recovery path now uses size-based termination (recurse until `batch=1`)
+  instead of a fixed depth cap. The per-text mean-vector fallback that #34
+  introduced is now actually reachable when individual texts exceed model
+  context.
+- **`ResponseError` preservation** (#32) — `OllamaEmbedding` now preserves
+  HTTP status code and server-side error message when re-raising as
+  `ConnectionError`, with `from err` chain. Previously, all `ResponseError`
+  instances (400, 404, 500) were masked as a single misleading
+  "Cannot reach Ollama" message.
+- **Chunker char-cap** (#34) — initial char-based cap on chunk emission via
+  `Config.max_chunk_chars` (env: `FLEET_MEM_MAX_CHUNK_CHARS`, default 5000).
+  Splits oversized chunks on newline boundaries before embedding. Includes
+  bisect scaffolding for the embedder side.
+- **`scripts/index-repos.sh` exit code propagation** (#33) — now returns
+  non-zero when any repo failed; prints `Indexed N/M repos.` summary line;
+  supports `FAIL_FAST=1` env var for early-exit on first failure. Bulk
+  callers (CI, orchestration scripts) now get accurate success/fail signals.
+
+[0.9.0]: https://github.com/sam-ent/fleet-mem/compare/v0.8.0...v0.9.0
+
 ## [0.4.0] - Unreleased
 
 ### Added
