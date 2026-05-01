@@ -2,8 +2,28 @@
 
 import fnmatch
 import json
+import os
 import sqlite3
 from pathlib import Path
+
+
+def _probe_sqlite_writable(conn: sqlite3.Connection) -> bool:
+    """Check that the SQLite connection can acquire a write lock.
+
+    Uses BEGIN IMMEDIATE / ROLLBACK to grab a RESERVED lock without
+    persisting any changes — fails fast on read-only files, full disks,
+    or other write-blocking conditions. ~1ms overhead.
+    """
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.rollback()
+        return True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
 
 
 def get_fleet_stats(
@@ -27,6 +47,17 @@ def get_fleet_stats(
 
     stats: dict = {"server_version": ver}
 
+    # Per-datastore health (read OK + write OK). Defaults to "not probed";
+    # each section below flips ok=True on a successful read and writable=True
+    # on a successful BEGIN IMMEDIATE probe.
+    health: dict[str, dict] = {
+        "chroma":      {"ok": False, "writable": False, "error": "not probed"},
+        "memory_db":   {"ok": False, "writable": False, "error": "not probed"},
+        "fleet_db":    {"ok": False, "writable": False, "error": "not probed"},
+        "embed_cache": {"ok": False, "writable": False, "error": "not probed"},
+    }
+    stats["health"] = health
+
     # ChromaDB collection stats
     try:
         import chromadb
@@ -38,9 +69,15 @@ def get_fleet_stats(
             c = client.get_collection(col.name)
             stats["collections"][col.name] = c.count()
         stats["total_chunks"] = sum(stats["collections"].values())
-    except Exception:
+        health["chroma"]["ok"] = True
+        health["chroma"]["error"] = None
+        # ChromaDB persists to a directory; treat OS-level write access as
+        # the write-health signal (cheap, no side effects).
+        health["chroma"]["writable"] = os.access(str(chroma_path), os.W_OK)
+    except Exception as exc:
         stats["collections"] = {}
         stats["total_chunks"] = 0
+        health["chroma"]["error"] = f"{type(exc).__name__}: {exc}"
 
     # Memory stats
     try:
@@ -74,10 +111,14 @@ def get_fleet_stats(
             pass
         stats["memory_nodes"] = conn.execute("SELECT COUNT(*) FROM memory_nodes").fetchone()[0]
         stats["file_anchors"] = conn.execute("SELECT COUNT(*) FROM file_anchors").fetchone()[0]
+        health["memory_db"]["ok"] = True
+        health["memory_db"]["error"] = None
+        health["memory_db"]["writable"] = _probe_sqlite_writable(conn)
         conn.close()
-    except Exception:
+    except Exception as exc:
         stats["memory_nodes"] = 0
         stats["file_anchors"] = 0
+        health["memory_db"]["error"] = f"{type(exc).__name__}: {exc}"
 
     # Fleet stats (locks, subscriptions, notifications)
     try:
@@ -195,11 +236,15 @@ def get_fleet_stats(
                 for r in notif_rows
             ]
 
+        health["fleet_db"]["ok"] = True
+        health["fleet_db"]["error"] = None
+        health["fleet_db"]["writable"] = _probe_sqlite_writable(conn)
         conn.close()
-    except Exception:
+    except Exception as exc:
         stats["active_locks"] = 0
         stats["subscriptions"] = 0
         stats["pending_notifications"] = 0
+        health["fleet_db"]["error"] = f"{type(exc).__name__}: {exc}"
         if detail:
             stats["lock_details"] = []
             stats["subscription_details"] = []
@@ -231,8 +276,12 @@ def get_fleet_stats(
         stats["cached_embeddings"] = conn.execute(
             "SELECT COUNT(*) FROM embedding_cache"
         ).fetchone()[0]
+        health["embed_cache"]["ok"] = True
+        health["embed_cache"]["error"] = None
+        health["embed_cache"]["writable"] = _probe_sqlite_writable(conn)
         conn.close()
-    except Exception:
+    except Exception as exc:
         stats["cached_embeddings"] = 0
+        health["embed_cache"]["error"] = f"{type(exc).__name__}: {exc}"
 
     return stats

@@ -41,6 +41,7 @@ class DashboardPanel(Container):
 
     def compose(self) -> ComposeResult:
         yield Label("Connecting...", id="stats-summary")
+        yield Label("", id="health-line")
         yield Label("", id="conflict-banner")
         with Horizontal(classes="sparkline-row"):
             with Container(classes="sparkline-box"):
@@ -91,6 +92,11 @@ class FleetMonitorApp(App):
         text-align: center;
         padding: 0 1;
     }
+    #health-line {
+        text-align: center;
+        padding: 0 1;
+        color: $text-muted;
+    }
     DataTable {
         height: 1fr;
     }
@@ -111,6 +117,13 @@ class FleetMonitorApp(App):
     }
     #log-pane {
         height: 1fr;
+    }
+    #copy-toast {
+        dock: bottom;
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        background: $panel;
     }
     """
 
@@ -158,6 +171,7 @@ class FleetMonitorApp(App):
                 yield DataTable(id="notifs-table")
             with TabPane("Log", id="tab-log"):
                 yield RichLog(markup=True, auto_scroll=True, max_lines=500, id="live-log")
+        yield Label("", id="copy-toast")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -245,6 +259,61 @@ class FleetMonitorApp(App):
         except Exception:
             pass
 
+    def _copy_text(self, text: str) -> None:
+        """Copy text to the system clipboard via OSC 52 and flash a toast."""
+        if not text:
+            return
+        try:
+            self.copy_to_clipboard(text)
+        except Exception:
+            return
+        display = text if len(text) <= 60 else text[:57] + "..."
+        try:
+            toast = self.query_one("#copy-toast", Label)
+            toast.update(f"[bold cyan]Copied:[/] {display}")
+        except Exception:
+            return
+        # Replace any pending clear-timer with a fresh one so rapid copies
+        # keep the toast visible until the user pauses.
+        prev = getattr(self, "_toast_timer", None)
+        if prev is not None:
+            try:
+                prev.stop()
+            except Exception:
+                pass
+        self._toast_timer = self.set_timer(2.0, self._clear_copy_toast)
+
+    def _clear_copy_toast(self) -> None:
+        try:
+            self.query_one("#copy-toast", Label).update("")
+        except Exception:
+            pass
+
+    def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
+        """Single-click on any DataTable cell copies its text to the clipboard."""
+        value = event.value
+        # Cells may hold rich.Text objects (styled) or plain strings.
+        text = getattr(value, "plain", None)
+        if text is None:
+            text = "" if value is None else str(value)
+        self._copy_text(text)
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Single-click on a tree node copies its text.
+
+        For Subscriptions parent groups (label `agent-xyz (N files)`), copy
+        just the agent ID — the count is a UI affordance, not data the user
+        wants on the clipboard.
+        """
+        node = event.node
+        if node.parent is None:
+            return  # the (hidden) root
+        label = str(node.label)
+        if node.children:
+            # parent: strip trailing "(N files)" or any " (...)" suffix
+            label = label.rsplit(" (", 1)[0]
+        self._copy_text(label)
+
     def _poll(self) -> None:
         stats = fetch_stats(sock_path=self._sock_path, detail=True)
         self._last_stats = stats
@@ -294,6 +363,44 @@ class FleetMonitorApp(App):
                 f"Cache: [bold cyan]{stats.get('cached_embeddings', 0)}[/]  "
                 f"Server: [bold magenta]v{server_ver}[/]"
             )
+        except Exception:
+            pass
+
+        # === DB health line (read + write per datastore) ===
+        try:
+            health_label = self.query_one("#health-line", Label)
+            health = stats.get("health", {})
+            parts: list[str] = ["DB Health:"]
+            for key, display in (
+                ("chroma", "ChromaDB"),
+                ("memory_db", "Memory"),
+                ("fleet_db", "Fleet"),
+                ("embed_cache", "Cache"),
+            ):
+                h = health.get(key, {})
+                ok = bool(h.get("ok"))
+                writable = bool(h.get("writable"))
+                if ok and writable:
+                    glyph = "[bold green]✓ R/W[/]"
+                elif ok and not writable:
+                    glyph = "[bold yellow]✓ R / ✗ W[/]"
+                else:
+                    glyph = "[bold red]✗[/]"
+                parts.append(f"{display} {glyph}")
+            # Append first error (if any) so the user sees a hint without
+            # having to dig into JSON.
+            first_err = next(
+                (
+                    f"{name}: {h['error']}"
+                    for name, h in health.items()
+                    if h.get("error") and not h.get("ok")
+                ),
+                None,
+            )
+            line = "  ".join(parts)
+            if first_err:
+                line += f"  [dim red]({first_err})[/]"
+            health_label.update(line)
         except Exception:
             pass
 
@@ -416,6 +523,16 @@ class FleetMonitorApp(App):
         # === Subscriptions tree (grouped by agent) ===
         try:
             tree = self.query_one("#subs-tree", Tree)
+
+            # Preserve the user's expansion state across polls. Without this,
+            # tree.clear() below wipes the expanded set on every refresh tick
+            # and any node the user just opened collapses on the next poll.
+            expanded_labels = {
+                str(child.label)
+                for child in tree.root.children
+                if child.is_expanded
+            }
+
             tree.clear()
 
             # Group by agent
@@ -427,9 +544,10 @@ class FleetMonitorApp(App):
                 subs_by_agent.setdefault(aid, []).append(sub.get("file_pattern", ""))
 
             for aid, patterns in sorted(subs_by_agent.items(), key=lambda x: -len(x[1])):
+                label = f"{aid} ({len(patterns)} files)"
                 node = tree.root.add(
-                    f"{aid} ({len(patterns)} files)",
-                    expand=False,
+                    label,
+                    expand=label in expanded_labels,
                     allow_expand=True,
                 )
                 for p in sorted(patterns):
