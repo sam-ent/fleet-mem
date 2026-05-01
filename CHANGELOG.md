@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`scripts/setup.sh` MCP registration target** (#50) — the installer wrote
+  the MCP server entry into `~/.claude/settings.json` under `mcpServers.fleet-mem`,
+  but Claude Code does not read MCP server configuration from
+  `~/.claude/settings.json` (it reads from `~/.claude.json` for user scope, or
+  `.mcp.json` per project). Result: install completed successfully, but
+  `fleet-mem` never appeared in `claude mcp list` and was unreachable from
+  Claude Code sessions. The script now invokes `claude mcp add -s user` by
+  default; the `MCP_SETTINGS_FILE` env-var override path is preserved for
+  non-Claude MCP clients (Cursor, Windsurf, etc.).
+- `scripts/setup.sh` now passes the user-selected `OLLAMA_HOST`,
+  `OLLAMA_EMBED_MODEL`, and `CHROMA_PATH` values into the MCP server `env`
+  block (#50). Previously these were collected interactively but only used at
+  install time — runtime relied on `dotenv` walking up from the server's cwd
+  to find a `.env`, which is unreliable across MCP clients.
+
 ## [0.9.0] - 2026-04-30
 
 ### Added

@@ -5,8 +5,12 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="${PROJECT_DIR}/.venv"
-# MCP client settings (default: Claude Code; override for other clients)
-MCP_SETTINGS_FILE="${MCP_SETTINGS_FILE:-${HOME}/.claude/settings.json}"
+# MCP client registration:
+#   - Default (Claude Code): use the `claude` CLI (`claude mcp add -s user`),
+#     which writes to ~/.claude.json — the file Claude Code actually reads.
+#   - Other MCP clients (Cursor, Windsurf, etc.): set MCP_SETTINGS_FILE to the
+#     client's MCP config path; the script writes the entry directly there.
+MCP_SETTINGS_FILE="${MCP_SETTINGS_FILE:-}"
 
 DEFAULT_CHROMA_DIR="${HOME}/.local/share/fleet-mem/chroma"
 DEFAULT_OLLAMA_HOST="http://localhost:11434"
@@ -92,26 +96,52 @@ else
 fi
 
 # --- 7. Register MCP server ---
-echo "Registering MCP server in ${MCP_SETTINGS_FILE}..."
-mkdir -p "$(dirname "$MCP_SETTINGS_FILE")"
+# Two paths:
+#   (a) Claude Code (default) — use `claude mcp add -s user`, which writes the
+#       entry into ~/.claude.json. This is the only file Claude Code reads for
+#       user-scope MCP servers; ~/.claude/settings.json is NOT read for MCP.
+#   (b) Other MCP clients — caller sets MCP_SETTINGS_FILE to the client's MCP
+#       config path, and we merge the entry into that file directly.
 
-MCP_ENTRY=$(cat <<JSONEOF
+MCP_REGISTERED_AT=""
+
+if [ -z "$MCP_SETTINGS_FILE" ] && command -v claude &>/dev/null; then
+    echo "Registering MCP server with Claude Code (claude mcp add -s user)..."
+    # Re-register cleanly on repeat runs.
+    if claude mcp get fleet-mem &>/dev/null; then
+        claude mcp remove -s user fleet-mem >/dev/null 2>&1 || true
+    fi
+    claude mcp add fleet-mem \
+        -s user \
+        -e "OLLAMA_HOST=${OLLAMA_HOST}" \
+        -e "OLLAMA_EMBED_MODEL=${EMBED_MODEL}" \
+        -e "CHROMA_PATH=${CHROMA_DIR}" \
+        -e "ANONYMIZED_TELEMETRY=False" \
+        -- "${VENV_DIR}/bin/python" -m fleet_mem.server
+    MCP_REGISTERED_AT="~/.claude.json (user scope, via claude mcp add)"
+elif [ -n "$MCP_SETTINGS_FILE" ]; then
+    echo "Registering MCP server in ${MCP_SETTINGS_FILE}..."
+    mkdir -p "$(dirname "$MCP_SETTINGS_FILE")"
+
+    MCP_ENTRY=$(cat <<JSONEOF
 {
+  "type": "stdio",
   "command": "${VENV_DIR}/bin/python",
   "args": ["-m", "fleet_mem.server"],
-  "cwd": "${PROJECT_DIR}",
   "env": {
+    "OLLAMA_HOST": "${OLLAMA_HOST}",
+    "OLLAMA_EMBED_MODEL": "${EMBED_MODEL}",
+    "CHROMA_PATH": "${CHROMA_DIR}",
     "ANONYMIZED_TELEMETRY": "False"
   }
 }
 JSONEOF
 )
 
-if [ -f "$MCP_SETTINGS_FILE" ]; then
-    cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.bak"
-    echo "Backed up existing settings to ${MCP_SETTINGS_FILE}.bak"
-    # Read existing, merge mcpServers.fleet-mem
-    echo "$MCP_ENTRY" | "${VENV_DIR}/bin/python" -c "
+    if [ -f "$MCP_SETTINGS_FILE" ]; then
+        cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.bak"
+        echo "Backed up existing settings to ${MCP_SETTINGS_FILE}.bak"
+        echo "$MCP_ENTRY" | "${VENV_DIR}/bin/python" -c "
 import json, sys, os
 
 entry = json.load(sys.stdin)
@@ -127,10 +157,10 @@ with open(settings_file, 'w') as f:
     json.dump(settings, f, indent=2)
     f.write('\n')
 
-print('Updated existing settings.json')
+print('Updated existing settings file')
 "
-else
-    echo "$MCP_ENTRY" | "${VENV_DIR}/bin/python" -c "
+    else
+        echo "$MCP_ENTRY" | "${VENV_DIR}/bin/python" -c "
 import json, sys, os
 
 entry = json.load(sys.stdin)
@@ -142,14 +172,24 @@ with open(settings_file, 'w') as f:
     json.dump(settings, f, indent=2)
     f.write('\n')
 
-print('Created new settings.json')
+print('Created new settings file')
 "
+    fi
+    MCP_REGISTERED_AT="${MCP_SETTINGS_FILE}"
+else
+    echo ""
+    echo "ERROR: Cannot register MCP server."
+    echo "  - For Claude Code: install the 'claude' CLI"
+    echo "    (https://docs.claude.com/en/docs/claude-code/quickstart)"
+    echo "  - For other MCP clients: set MCP_SETTINGS_FILE to the client's"
+    echo "    MCP config file path before running this script."
+    exit 1
 fi
 
 echo ""
 echo "Installation complete."
 echo "  Venv:   ${VENV_DIR}"
 echo "  Chroma: ${CHROMA_DIR}"
-echo "  MCP:    registered in ${MCP_SETTINGS_FILE}"
+echo "  MCP:    registered at ${MCP_REGISTERED_AT}"
 echo ""
 echo "Restart your MCP client to pick up the new server."
