@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Locks tab is now a tree, not a flat table** (#57) — each agent's lock is
+  a parent node with the file patterns as expandable leaves. Parent label
+  format: `agent-id (N files · branch=… · expires HH:MM:SS)`. Replaces the
+  prior `DataTable` where the Files column rendered the JSON pattern array
+  as the literal string `"3 files"` with no way to drill into the actual
+  patterns. Expansion state persists across polls (same pattern as #53);
+  click-to-copy (#56) still works — clicking a parent copies the agent ID,
+  clicking a leaf copies the pattern. The conflict overlap-summary above
+  the tree is unchanged.
+
 ### Added
 
 - **Click-to-copy on monitor cells and tree nodes** (#56) — single-click on

@@ -162,7 +162,7 @@ class FleetMonitorApp(App):
             with TabPane("Locks", id="tab-locks"):
                 with Vertical():
                     yield Label("", id="overlap-summary")
-                    yield DataTable(id="locks-table")
+                    yield Tree("Locks", id="locks-tree")
             with TabPane("Subscriptions", id="tab-subs"):
                 yield Tree("Subscriptions", id="subs-tree")
             with TabPane("Memory", id="tab-memory"):
@@ -187,9 +187,9 @@ class FleetMonitorApp(App):
             "Status",
         )
 
-        # Locks table
-        locks = self.query_one("#locks-table", DataTable)
-        locks.add_columns("Agent", "Project", "Files", "Branch", "Acquired", "Expires")
+        # Locks tree
+        locks_tree = self.query_one("#locks-tree", Tree)
+        locks_tree.show_root = False
 
         # Subs tree
         tree = self.query_one("#subs-tree", Tree)
@@ -486,25 +486,44 @@ class FleetMonitorApp(App):
         except Exception:
             pass
 
-        # === Locks table + overlap summary ===
+        # === Locks tree (grouped by agent) + overlap summary ===
         try:
-            locks_table = self.query_one("#locks-table", DataTable)
-            locks_table.clear()
+            locks_tree = self.query_one("#locks-tree", Tree)
+
+            # Preserve expansion state across polls — same pattern as the
+            # subscriptions tree (#53). Each agent's lock node remembers
+            # whether the user opened it.
+            expanded_lock_labels = {
+                str(child.label) for child in locks_tree.root.children if child.is_expanded
+            }
+
+            locks_tree.clear()
+
             for lock in stats.get("lock_details", []):
-                if agent_filter and agent_filter not in lock.get("agent_id", "").lower():
+                aid = lock.get("agent_id", "")
+                if agent_filter and agent_filter not in aid.lower():
                     continue
                 patterns = lock.get("file_patterns", [])
-                file_str = f"{len(patterns)} files"
-                locks_table.add_row(
-                    lock.get("agent_id", ""),
-                    lock.get("project", ""),
-                    file_str,
-                    lock.get("branch", ""),
-                    lock.get("acquired_at", "")[:19],
-                    lock.get("expires_at", "")[:19],
+                branch = lock.get("branch", "")
+                expires = lock.get("expires_at", "")[11:19]  # HH:MM:SS
+                # Parent label: `agent-id (N files · branch=… · expires HH:MM:SS)`
+                # The "(...)" wrapper matches the click-to-copy convention so
+                # that on_tree_node_selected strips it and copies just the agent ID.
+                meta_parts = [f"{len(patterns)} files"]
+                if branch:
+                    meta_parts.append(f"branch={branch}")
+                if expires:
+                    meta_parts.append(f"expires {expires}")
+                label = f"{aid} ({' · '.join(meta_parts)})"
+                node = locks_tree.root.add(
+                    label,
+                    expand=label in expanded_lock_labels,
+                    allow_expand=True,
                 )
+                for p in patterns:
+                    node.add_leaf(p)
 
-            # Overlap summary
+            # Overlap summary (unchanged — independent of rendering structure)
             conflicts = stats.get("conflicts", [])
             overlap_label = self.query_one("#overlap-summary", Label)
             if conflicts:
@@ -528,9 +547,7 @@ class FleetMonitorApp(App):
             # tree.clear() below wipes the expanded set on every refresh tick
             # and any node the user just opened collapses on the next poll.
             expanded_labels = {
-                str(child.label)
-                for child in tree.root.children
-                if child.is_expanded
+                str(child.label) for child in tree.root.children if child.is_expanded
             }
 
             tree.clear()
